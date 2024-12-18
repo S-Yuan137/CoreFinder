@@ -1010,8 +1010,11 @@ class MaskCube(DataCube):
         refine = kwargs.get("refine", True)
         total_mass = np.sum(masked_data * pixel_length**3)
         # mass in the unit of Msun, 1 pixel = 0.005 pc
-        if total_mass < target_mass:
+        if total_mass < target_mass * (1 - tolerance):
             return "The target mass should be less than the total mass."
+        
+        if target_mass * (1 - tolerance) < total_mass < target_mass * (1 + tolerance):
+            return masked_data > 0  # no negative density
 
         def single_mask(masked_data, contour, seed_point):
             temp_mask1 = masked_data >= contour
