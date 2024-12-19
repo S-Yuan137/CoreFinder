@@ -1,9 +1,12 @@
+from hmac import new
 import pickle
 import os
+import pstats
 import numpy as np
 from collections import deque, defaultdict
-from .core_finder import MaskCube
 
+from sympy import li
+from .core_finder import MaskCube
 
 
 def is_moving(next_overlap_tuple: tuple) -> int | None:
@@ -246,6 +249,14 @@ class CoreTrack:
         return file_list
 
     def get_cores(self, directory: str) -> list["MaskCube"]:
+        """
+        load the cores from the directory
+
+        Returns
+        -------
+        cores : list[MaskCube]
+            The list of MaskCube objects
+        """
         cores = []
         for snap, coreID in self.track:
             if coreID != 0 and isinstance(coreID, int):
@@ -255,20 +266,202 @@ class CoreTrack:
                     core = pickle.load(f)
                 cores.append(core)
             else:
-                cores.append(MaskCube(
-                    np.zeros((1, 1, 1)),
-                    np.ones((1, 1, 1), dtype=bool),
-                    {0: np.ones((1, 1, 1), dtype=bool)},
-                    {0: (0, 0, 0)},
-                    internal_id=0,
-                    snapshot=snap,
-                    file_load_path="",
-                ))
+                cores.append(
+                    MaskCube(
+                        np.zeros((1, 1, 1)),
+                        np.ones((1, 1, 1), dtype=bool),
+                        {0: np.ones((1, 1, 1), dtype=bool)},
+                        {0: (0, 0, 0)},
+                        internal_id=0,
+                        snapshot=snap,
+                        file_load_path="placeholder",
+                    )
+                )
         return cores
+
+    def get_filled_canvas3d_list_float_position(
+        self, coreslist: list["MaskCube"] = None, threshold: float = 17.682717 * 30
+    ) -> tuple[list[np.ndarray], list[tuple[int, int, int]]]:
+        """
+        Fill in the canvas with the data (masked_density in MaskCube list), where the
+        positions of canvas in each snap are float (not fixed). 
+
+        Parameters
+        ----------
+        coreslist : list[MaskCube], optional
+            The list of MaskCube objects, by default None. However, this should be
+            provided if the MaskCube objects are not loaded from the directory.
+            And for computation efficiency, it is recommended to provide the MaskCube.
+        threshold : float, optional
+            The threshold value, by default 17.682717 * 30
+
+        Returns
+        -------
+        canvas3d_list: list[np.ndarray]
+            The list of filled canvas in 3D.
+        refpoints: list[tuple[int, int, int]]
+            The most lower-left point cooridinate of the canvas in 3D.
+        """
+        
+        def get_canvas_size(
+            refs: list[tuple[int, int, int]], sizes: list[tuple[int, int, int]]
+        ) -> tuple[int, int, int]:
+            """
+            Get the size of the canvas for plotting
+            """
+            # get the maximum x and y
+            max_x = max([ref[0] + size[0] for ref, size in zip(refs, sizes)])
+            max_y = max([ref[1] + size[1] for ref, size in zip(refs, sizes)])
+            max_z = max([ref[2] + size[2] for ref, size in zip(refs, sizes)])
+            # get the minimum x, y, z
+            min_x = min([ref[0] for ref in refs])
+            min_y = min([ref[1] for ref in refs])
+            min_z = min([ref[2] for ref in refs])
+
+            return max_x - min_x, max_y - min_y, max_z - min_z
+
+        def fill_in_canvas(
+            refs: list[tuple[int, int, int]],
+            sizes: list[tuple[int, int, int]],
+            datas: list[np.ndarray],
+            canvas: np.ndarray,
+        ):
+            """
+            Fill in the canvas with the data
+            """
+            # find the (0,0,0) point in the refs
+            min_x = min([ref[0] for ref in refs])
+            min_y = min([ref[1] for ref in refs])
+            min_z = min([ref[2] for ref in refs])
+            for ref, size, data in zip(refs, sizes, datas):
+                x, y, z = ref
+                canvas[
+                    x - min_x : x - min_x + size[0],
+                    y - min_y : y - min_y + size[1],
+                    z - min_z : z - min_z + size[2],
+                ] = data
+            return canvas, (min_x, min_y, min_z)
+
+        snaps, ids = zip(*self.track)
+        reduce_snaps, count = np.unique(snaps, return_counts=True)
+
+        # sort the coretrack by the snap and id
+        # the coretarck.track is a list of tuple (snap, id)
+        # ! logic can be improved later
+        coretrack = sorted(self, key=lambda x: (x[0], x[1]))
+        # also sort the CoresList by the snap and id
+        # [(core.snapshot, core.internal_id) for core in CoresList]
+        coreslist = sorted(coreslist, key=lambda x: (x.snapshot, x.internal_id))
+
+        ii = 0
+        filled_canvas_list = []
+        canvas_refpoints = []
+        for idx, snap in enumerate(reduce_snaps):
+            num_cross_clumps = count[idx]
+            if num_cross_clumps == 1:
+                filled_canvas_list.append(
+                    coreslist[ii].data(threshold, return_data_type="masked_density")
+                )
+                canvas_refpoints.append(coreslist[ii].refpoints[threshold])
+                ii += 1
+            else:
+                temp_refs = []
+                temp_sizes = []
+                temp_datas = []
+                for _ in range(num_cross_clumps):
+                    temp_refs.append(coreslist[ii].refpoints[threshold])
+                    temp_sizes.append(coreslist[ii].masks[threshold].shape)
+                    temp_datas.append(
+                        coreslist[ii].data(threshold, return_data_type="masked_density")
+                    )
+                    ii += 1
+                canvas = np.zeros(get_canvas_size(temp_refs, temp_sizes))
+                canvas, new_ref = fill_in_canvas(temp_refs, temp_sizes, temp_datas, canvas)
+                filled_canvas_list.append(canvas)
+                canvas_refpoints.append(new_ref)
+        return filled_canvas_list, canvas_refpoints
+    
+    def get_filled_canvas3d_list(
+        self, coreslist: list["MaskCube"] = None, threshold: float = 17.682717 * 30
+    ) -> tuple[list[np.ndarray], list[tuple[int, int, int]]]:
+        """
+        Fill in the canvas with the data (masked_density in MaskCube list), where the
+        positions of canvas in snaps have correct relative distances.
+
+        Parameters
+        ----------
+        coreslist : list[MaskCube], optional
+            The list of MaskCube objects, by default None. However, this should be
+            provided if the MaskCube objects are not loaded from the directory.
+            And for computation efficiency, it is recommended to provide the MaskCube.
+        threshold : float, optional
+            The threshold value, by default 17.682717 * 30
+
+        Returns
+        -------
+        canvas3d_list: list[np.ndarray]
+            The list of filled canvas in 3D.
+        refpoints: list[tuple[int, int, int]]
+            The most lower-left point cooridinate of the canvas in 3D.
+        """
+        canvs3d_list, refpoints = self.get_filled_canvas3d_list_float_position(coreslist, threshold)
+        
+        def get_bounding_canvas_size(
+            canvases: list[np.ndarray], refpoints: list[tuple[int, int, int]]
+        ) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
+            """
+            Get the size of the bounding canvas for plotting
+            """
+            # get the maximum x and y
+            max_x = max([ref[0] + canvas.shape[0] for ref, canvas in zip(refpoints, canvases)])
+            max_y = max([ref[1] + canvas.shape[1] for ref, canvas in zip(refpoints, canvases)])
+            max_z = max([ref[2] + canvas.shape[2] for ref, canvas in zip(refpoints, canvases)])
+            # get the minimum x, y, z
+            min_x = min([ref[0] for ref in refpoints])
+            min_y = min([ref[1] for ref in refpoints])
+            min_z = min([ref[2] for ref in refpoints])
+
+            return (max_x - min_x, max_y - min_y, max_z - min_z), (min_x, min_y, min_z)
+        
+        bc_size, min_ref_bc = get_bounding_canvas_size(canvs3d_list, refpoints)
+        fixed_position_canvs3d_list = []
+        for i, canvas in enumerate(canvs3d_list):
+            temp_canvas = np.zeros(bc_size)
+            temp_canvas[
+                refpoints[i][0] - min_ref_bc[0] : refpoints[i][0] - min_ref_bc[0] + canvas.shape[0],
+                refpoints[i][1] - min_ref_bc[1] : refpoints[i][1] - min_ref_bc[1] + canvas.shape[1],
+                refpoints[i][2] - min_ref_bc[2] : refpoints[i][2] - min_ref_bc[2] + canvas.shape[2],
+            ] = canvas
+            fixed_position_canvs3d_list.append(temp_canvas)
+            
+        return fixed_position_canvs3d_list
+        
+    
+    def get_filled_canvas2d_list(self, coreslist: list["MaskCube"] = None, threshold: float = 17.682717 * 30, LOS_direction=(1,0,0)) -> list[np.ndarray]:
+        """
+        Fill in the canvas with the data (masked_density in MaskCube list) for 2D
+
+        Parameters
+        ----------
+        coreslist : list[&quot;MaskCube&quot;], optional
+            The list of MaskCube objects, by default None. However, this should be
+            provided if the MaskCube objects are not loaded from the directory.
+            And for computation efficiency, it is recommended to provide the MaskCube.
+        threshold : float, optional
+            The threshold value, by default 17.682717 * 30
+        LOS_direction : tuple[int, int, int], optional
+            The line of sight direction, by default (1, 0, 0).
+
+        Returns
+        -------
+        canvas2d: list[np.ndarray]
+            The filled canvas in 2D.
+        """
+        pass
 
     def add_core(self, snap_coreID: tuple[int, int]) -> None:
         self.track.append(snap_coreID)
-        
+
     def get_random_core(self) -> "MaskCube":
         pass
 

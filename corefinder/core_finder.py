@@ -915,7 +915,7 @@ class MaskCube(DataCube):
         kwargs: dict
             The keyword arguments for the function, including:
             return_data_type: str, optional
-                The type of the data to return. Default is "density".
+                The type of the data to return. Default is "masked_density".
                 - "density": the density data.
                 - "masked_density": the density data masked by the ROI and the
                   mask.
@@ -928,7 +928,14 @@ class MaskCube(DataCube):
             Or the tuple of the data, the ROI, and the mask.
 
         """
-        return_data_type = kwargs.get("return_data_type", "density")
+        
+        valid_args = ["return_data_type"]
+        for arg in kwargs:
+            if arg not in valid_args:
+                print(f"{arg} is not a valid keyword")
+                kwargs.pop(arg)
+        
+        return_data_type = kwargs.get("return_data_type", "masked_density")
         if (threshold is not None) and (threshold not in self.thresholds):
             raise ValueError("The threshold is not in the thresholds.")
         if threshold is None:
