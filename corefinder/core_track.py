@@ -1,11 +1,8 @@
 from hmac import new
 import pickle
 import os
-import pstats
 import numpy as np
 from collections import deque, defaultdict
-
-from sympy import li
 from .core_finder import MaskCube
 
 
@@ -284,7 +281,7 @@ class CoreTrack:
     ) -> tuple[list[np.ndarray], list[tuple[int, int, int]]]:
         """
         Fill in the canvas with the data (masked_density in MaskCube list), where the
-        positions of canvas in each snap are float (not fixed). 
+        positions of canvas in each snap are float (not fixed).
 
         Parameters
         ----------
@@ -302,7 +299,7 @@ class CoreTrack:
         refpoints: list[tuple[int, int, int]]
             The most lower-left point cooridinate of the canvas in 3D.
         """
-        
+
         def get_canvas_size(
             refs: list[tuple[int, int, int]], sizes: list[tuple[int, int, int]]
         ) -> tuple[int, int, int]:
@@ -376,11 +373,13 @@ class CoreTrack:
                     )
                     ii += 1
                 canvas = np.zeros(get_canvas_size(temp_refs, temp_sizes))
-                canvas, new_ref = fill_in_canvas(temp_refs, temp_sizes, temp_datas, canvas)
+                canvas, new_ref = fill_in_canvas(
+                    temp_refs, temp_sizes, temp_datas, canvas
+                )
                 filled_canvas_list.append(canvas)
                 canvas_refpoints.append(new_ref)
         return filled_canvas_list, canvas_refpoints
-    
+
     def get_filled_canvas3d_list(
         self, coreslist: list["MaskCube"] = None, threshold: float = 17.682717 * 30
     ) -> tuple[list[np.ndarray], list[tuple[int, int, int]]]:
@@ -404,8 +403,10 @@ class CoreTrack:
         refpoints: list[tuple[int, int, int]]
             The most lower-left point cooridinate of the canvas in 3D.
         """
-        canvs3d_list, refpoints = self.get_filled_canvas3d_list_float_position(coreslist, threshold)
-        
+        canvs3d_list, refpoints = self.get_filled_canvas3d_list_float_position(
+            coreslist, threshold
+        )
+
         def get_bounding_canvas_size(
             canvases: list[np.ndarray], refpoints: list[tuple[int, int, int]]
         ) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
@@ -413,31 +414,50 @@ class CoreTrack:
             Get the size of the bounding canvas for plotting
             """
             # get the maximum x and y
-            max_x = max([ref[0] + canvas.shape[0] for ref, canvas in zip(refpoints, canvases)])
-            max_y = max([ref[1] + canvas.shape[1] for ref, canvas in zip(refpoints, canvases)])
-            max_z = max([ref[2] + canvas.shape[2] for ref, canvas in zip(refpoints, canvases)])
+            max_x = max(
+                [ref[0] + canvas.shape[0] for ref, canvas in zip(refpoints, canvases)]
+            )
+            max_y = max(
+                [ref[1] + canvas.shape[1] for ref, canvas in zip(refpoints, canvases)]
+            )
+            max_z = max(
+                [ref[2] + canvas.shape[2] for ref, canvas in zip(refpoints, canvases)]
+            )
             # get the minimum x, y, z
             min_x = min([ref[0] for ref in refpoints])
             min_y = min([ref[1] for ref in refpoints])
             min_z = min([ref[2] for ref in refpoints])
 
             return (max_x - min_x, max_y - min_y, max_z - min_z), (min_x, min_y, min_z)
-        
+
         bc_size, min_ref_bc = get_bounding_canvas_size(canvs3d_list, refpoints)
         fixed_position_canvs3d_list = []
         for i, canvas in enumerate(canvs3d_list):
             temp_canvas = np.zeros(bc_size)
             temp_canvas[
-                refpoints[i][0] - min_ref_bc[0] : refpoints[i][0] - min_ref_bc[0] + canvas.shape[0],
-                refpoints[i][1] - min_ref_bc[1] : refpoints[i][1] - min_ref_bc[1] + canvas.shape[1],
-                refpoints[i][2] - min_ref_bc[2] : refpoints[i][2] - min_ref_bc[2] + canvas.shape[2],
+                refpoints[i][0]
+                - min_ref_bc[0] : refpoints[i][0]
+                - min_ref_bc[0]
+                + canvas.shape[0],
+                refpoints[i][1]
+                - min_ref_bc[1] : refpoints[i][1]
+                - min_ref_bc[1]
+                + canvas.shape[1],
+                refpoints[i][2]
+                - min_ref_bc[2] : refpoints[i][2]
+                - min_ref_bc[2]
+                + canvas.shape[2],
             ] = canvas
             fixed_position_canvs3d_list.append(temp_canvas)
-            
+
         return fixed_position_canvs3d_list
-        
-    
-    def get_filled_canvas2d_list(self, coreslist: list["MaskCube"] = None, threshold: float = 17.682717 * 30, LOS_direction=(1,0,0)) -> list[np.ndarray]:
+
+    def get_filled_canvas2d_list(
+        self,
+        coreslist: list["MaskCube"] = None,
+        threshold: float = 17.682717 * 30,
+        LOS_direction=(1, 0, 0),
+    ) -> list[np.ndarray]:
         """
         Fill in the canvas with the data (masked_density in MaskCube list) for 2D
 
