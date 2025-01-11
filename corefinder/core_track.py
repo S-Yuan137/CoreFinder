@@ -215,7 +215,9 @@ def is_split(next_overlap_tuple: tuple) -> int | None:
 
 class CoreTrack:
     def __init__(self, track: list[tuple[int, int]]) -> None:
-        self.track = track  # [(snap, coreID), ...]
+        # sort the track by the snap and id
+        # [(snap, coreID), ...]
+        self.track = sorted(track, key=lambda x: (x[0], x[1]))
 
     def __str__(self):
         return f"CoreTrack (snap, ID): {self.track}"
@@ -342,12 +344,10 @@ class CoreTrack:
         snaps, ids = zip(*self.track)
         reduce_snaps, count = np.unique(snaps, return_counts=True)
 
-        # sort the coretrack by the snap and id
-        # the coretarck.track is a list of tuple (snap, id)
-        # ! logic can be improved later
-        coretrack = sorted(self, key=lambda x: (x[0], x[1]))
-        # also sort the CoresList by the snap and id
-        # [(core.snapshot, core.internal_id) for core in CoresList]
+        # the coretrack is sorted according to the snap and id by default
+        # also sort the coreslist according to the snap and id
+        # usually, the coreslist should have the same order as the track
+        # but just in case, keep the following line
         coreslist = sorted(coreslist, key=lambda x: (x.snapshot, x.internal_id))
 
         ii = 0
@@ -613,6 +613,100 @@ def overlaps2tracks(
         return passing_paths
 
 
+def tracks_branch(
+    overlaps: list["OverLap"], passing_node: tuple[int, int] = None
+) -> dict[str, list["CoreTrack"]]:
+    """
+    Branch the tracks into different branches.
+
+    Parameters
+    ----------
+    overlaps : list[OverLap]
+        A list of OverLap objects.
+
+    passing_node : tuple[int, int], optional
+        The node that the track must pass through, by default None.
+
+    Returns
+    -------
+    branches : dict[str, list[CoreTrack]]
+        A dictionary of branches. The key is the branch name, and the value is
+        a list of CoreTrack objects.
+    """
+    mappings = {}
+    for overlap in overlaps:
+        overlap.filter_overlap(0.01)
+        snap = overlap.snap
+        for key, value in overlap.get_next_core().items():
+            if len(value) == 1:
+                mappings[(snap, int(key))] = [(snap + 1, value[0])]
+            elif len(value) > 1:
+                mappings[(snap, int(key))] = [(snap + 1, int(v)) for v in value]
+
+    clusters = overlaps2tracks(overlaps, passing_node)
+
+    def is_subsequence(sub, main):
+        sub_len = len(sub)
+        main_len = len(main)
+        if sub_len > main_len:
+            return False
+        for i in range(main_len - sub_len + 1):
+            if main[i : i + sub_len] == sub:
+                return True
+        return False
+
+    def dfs_chains(graph, node, visited, path, cluster_paths, recorded_paths):
+        visited.add(node)
+        path.append(node)
+
+        # if the current node has no out-edges, it is a terminal
+        if not graph[node]:
+            current_path = tuple(path)
+            if current_path not in recorded_paths:
+                cluster_paths.append(list(path))
+                recorded_paths.add(current_path)
+
+        for neighbor in graph[node]:
+            if neighbor not in visited:
+                dfs_chains(
+                    graph, neighbor, visited, path, cluster_paths, recorded_paths
+                )
+
+        path.pop()
+        visited.remove(node)
+
+    # construct directed graph
+    graph = defaultdict(list)
+    for key, value in mappings.items():
+        for v in value:
+            graph[key].append(v)
+
+    result = {}
+    for i, cluster in enumerate(clusters):
+        cluster_paths = []
+        visited = set()
+        recorded_paths = set()
+
+        for node in cluster:
+            if node not in visited:
+                path = []
+                dfs_chains(graph, node, visited, path, cluster_paths, recorded_paths)
+
+        # filter out the redundant paths
+        unique_paths = []
+        for path in cluster_paths:
+            if not any(
+                is_subsequence(path, other_path)
+                for other_path in cluster_paths
+                if path != other_path
+            ):
+                unique_paths.append(path)
+
+        result[f"cluster{i}"] = unique_paths
+
+    return result
+
+
 if __name__ == "__main__":
     # ================= Test CoreTrack =================
     # track = [(20, 1), (21, 1), (22, 1), (23, 1), (24, 1), (25, 2)]
@@ -633,6 +727,8 @@ if __name__ == "__main__":
         overlap.filter_overlap(0.01)
         overlaps.append(overlap)
 
-    a = overlaps2tracks(overlaps, (20, 1))[0]
+    a = overlaps2tracks(overlaps)
     print(a)
-    print(a.get_cores(file_dir))
+    # print(a.get_cores(file_dir))
+    b = tracks_branch(overlaps)
+    print(b)
