@@ -212,6 +212,35 @@ class MaskCube(DataCube):
             f"of {self.phyinfo['pixel_size']} {self.phyinfo['length_unit']}. "
             f"Details see {self.__class__.__name__}.info()"
         )
+        
+    def __eq__(self, other):
+        if not isinstance(other, MaskCube):
+            return False
+        if not np.allclose(self._data, other._data):
+            return False
+        if not np.allclose(self._mask, other._mask):
+            return False
+        if not np.allclose(self.thresholds, other.thresholds):
+            return False
+        if not all(
+            np.allclose(self.masks[key], other.masks[key])
+            for key in self.masks.keys()
+        ):
+            return False
+        if not all(
+            np.allclose(self.refpoints[key], other.refpoints[key])
+            for key in self.refpoints.keys()
+        ):
+            return False
+        if self.internal_id != other.internal_id:
+            return False
+        if self.snapshot != other.snapshot:
+            return False
+        if self.file_load_path != other.file_load_path:
+            return False
+        if self.original_shape != other.original_shape:
+            return False
+        return True
 
     def _check_ROI(self):
         if self._mask is None:
@@ -724,9 +753,8 @@ class MaskCube(DataCube):
 
         file_load_path = _previous_file_path(self.file_load_path)
 
-        
         # ! here the dataset name is hard coded, need to be changed
-        
+
         with h5py.File(file_load_path, "r") as f:
             prev_den = f["gas_density"][...].T
             prev_vx = f["i_velocity"][...].T
@@ -829,13 +857,13 @@ class MaskCube(DataCube):
             The target mass of the core. It must be negative. For example, -2.0 is used
             for 2.0 Msun, where `-` is used to distinguish from the clump threshold.
         clump_threshold : float, optional
-            the threshold of the clump where to find the core, by default the most 
+            the threshold of the clump where to find the core, by default the most
             compact clump will be used (the largest positive threshold).
 
         Notes
         -----
         For details of the core finding, see the `MaskCube.get_fixed_mass_core` method
-        as below: 
+        as below:
         ```
         Parameters in get_fixed_mass_core
         ----------------------------------
@@ -855,7 +883,7 @@ class MaskCube(DataCube):
                 Whether to refine the core mass. Default is True.
         ```
         """
-        
+
         if target_mass >= 0:
             raise ValueError(
                 "Threshold (target_mass) must be negative for core, like -2"
@@ -915,11 +943,11 @@ class MaskCube(DataCube):
         kwargs: dict
             The keyword arguments for the function, including:
             return_data_type: str, optional
-                The type of the data to return. Default is "masked_density".
-                - "density": the density data.
-                - "masked_density": the density data masked by the ROI and the
+                The type of the data to return. Default is "masked".
+                - "subcube": the density data of the subcube.
+                - "masked": the density data masked by the ROI and the
                   mask.
-                - "density_roi_mask": the density data, the ROI, and the mask.
+                - "subcube_roi_mask": the density data, the ROI, and the mask.
 
         Returns
         -------
@@ -928,26 +956,26 @@ class MaskCube(DataCube):
             Or the tuple of the data, the ROI, and the mask.
 
         """
-        
+
         valid_args = ["return_data_type"]
         for arg in kwargs:
             if arg not in valid_args:
                 print(f"{arg} is not a valid keyword")
                 kwargs.pop(arg)
-        
-        return_data_type = kwargs.get("return_data_type", "masked_density")
+
+        return_data_type = kwargs.get("return_data_type", "masked")
         if (threshold is not None) and (threshold not in self.thresholds):
             raise ValueError("The threshold is not in the thresholds.")
         if threshold is None:
-            if return_data_type == "density":
+            if return_data_type == "subcube":
                 return self._data
-            elif return_data_type == "masked_density":
+            elif return_data_type == "masked":
                 return (
                     self._data
                     * self._mask
                     * self.masks[self._get_threshold_of_largest_subcube()]
                 )
-            elif return_data_type == "density_roi_mask":
+            elif return_data_type == "subcube_roi_mask":
                 return (
                     self._data,
                     self._mask,
@@ -966,11 +994,11 @@ class MaskCube(DataCube):
                 refpoint[1] : refpoint[1] + shape[1],
                 refpoint[2] : refpoint[2] + shape[2],
             ]
-            if return_data_type == "density":
+            if return_data_type == "subcube":
                 return density
-            elif return_data_type == "masked_density":
+            elif return_data_type == "masked":
                 return density * roi * self.masks[threshold]
-            elif return_data_type == "density_roi_mask":
+            elif return_data_type == "subcube_roi_mask":
                 return density, roi, self.masks[threshold]
             else:
                 raise ValueError("The return_data_type is not valid.")
@@ -1019,7 +1047,7 @@ class MaskCube(DataCube):
         # mass in the unit of Msun, 1 pixel = 0.005 pc
         if total_mass < target_mass * (1 - tolerance):
             return "The target mass should be less than the total mass."
-        
+
         if target_mass * (1 - tolerance) < total_mass < target_mass * (1 + tolerance):
             return masked_data > 0  # no negative density
 
@@ -1366,6 +1394,9 @@ class SimCube(DataCube):
                             )
             size = [upper_indices[i] - lower_indices[i] + 1 for i in range(3)]
             bounding_boxes[tag] = (tuple(lower_indices), tuple(size))
+            
+        # ! consider improve the function here by combining `convert_box_from_downpixel_to_real`
+        # function in the `core_stats` module
         return bounding_boxes
 
     @staticmethod
@@ -1492,6 +1523,213 @@ class SimCube(DataCube):
         kwargs.pop("phyinfo", None)
         return SimCube(density, mask, (vx, vy, vz), phyinfo=phyinfo, **kwargs)
 
+
+class CoreCube(MaskCube):
+    """
+    The CoreCube class is used to store the clump and core data, with velocity and B-field
+    information compared to the MaskCube class.
+
+    Parameters
+    ----------
+    data: numpy.ndarray
+        The data cube of density.
+    extra_data: dict[str, numpy.ndarray]
+        The extra data for the core cube.
+    ROI: numpy.ndarray
+        The region of interest (ROI) mask.
+    masks: dict
+        The masks for different thresholds.
+    refpoints: dict
+        The reference points for different thresholds.
+    internal_id: int
+        The internal ID of the mask cube.
+    snapshot: int, optional
+        The snapshot number. Default is None.
+    phyinfo: dict, optional
+        The physical information. Default is None.
+    **kwargs:
+        - file_load_path: str
+            The file path to load the data.
+        - original_shape: tuple
+            The original shape of the raw data cube. Default is
+            (960,960,960).
+
+    Notes
+    -----
+    - The mask cube is used to store the clump and core data.
+    - The masks and refpoints are stored in a dictionary with the
+    thresholds as the keys.
+        - thresholds: float, positive number defining the threshold for
+        the clump mask. The negative number defining the threshold for the
+        core mask. For example, -2.0 is used for the core mask meaning the
+        mass of the core is 2.0 Msun. 20.0 is used for the clump mask
+        meaning the density threshold is 20.0 Msun/pc^3. The units are
+        defined in the phyinfo.
+    - The internal ID is used to identify different cores within the same
+    snapshot.
+        - when the internal ID is positive, it is from positive evolution tracking
+        by the predicted-spatial-overlap method.
+        - when the internal ID is negative, it is from the reverse tracking by
+        the particle tracing to the previous snapshot, due to the amorphous core
+        ancestor.
+
+    """
+
+    def __init__(
+        self,
+        data: np.ndarray,
+        extra_data: dict[str, np.ndarray],
+        ROI: np.ndarray,
+        masks: dict,
+        refpoints: dict,
+        internal_id: int,
+        snapshot: int = None,
+        phyinfo: dict = None,
+        **kwargs,
+    ):  
+        for key in extra_data.keys():
+            if extra_data[key].shape != data.shape:
+                raise ValueError(
+                    f"Shape of new data and new extra data should be the same. {key} is not the same."
+                )
+        super().__init__(
+            data, ROI, masks, refpoints, internal_id, snapshot, phyinfo, **kwargs
+        )
+        self._extra_data = extra_data
+
+    def info(self, *args):
+        super().info(*args)
+        if len(args) == 0:
+            print(f"Extra data: {list(self._extra_data.keys())}")
+        else:
+            for arg in args:
+                if arg == "_":
+                    print(f"{arg}: {list(self._extra_data.keys())}")
+                else:
+                    print(f"{arg} is not a valid keyword")
+
+    def __repr__(self):
+        return (
+            f"corecube in shape of {self.shape} in pixels, with pixel size"
+            f"of {self.phyinfo['pixel_size']} {self.phyinfo['length_unit']}. "
+            f"Details see {self.__class__.__name__}.info()"
+        )
+
+    def __str__(self):
+        return (
+            f"corecube in shape of {self.shape} in pixels, with pixel size"
+            f"of {self.phyinfo['pixel_size']} {self.phyinfo['length_unit']}. "
+            f"Details see {self.__class__.__name__}.info()"
+        )
+        
+    def __eq__(self, value):
+        if not isinstance(value, CoreCube):
+            return False
+        if not super().__eq__(value):
+            return False
+        # extra data is a dictionary, so we need to compare the keys and values
+        if self._extra_data.keys() != value._extra_data.keys():
+            return False
+        for key in self._extra_data.keys():
+            if not np.allclose(self._extra_data[key], value._extra_data[key]):
+                return False
+        return True
+
+    def data(self, threshold: float = None, dataset_name = "density", return_data_type = "masked") -> np.ndarray:
+        """
+        Get the data (density, vx, Bz, ...) of the mask cube by the threshold.
+
+        Parameters
+        ----------
+        threshold: float, optional
+            The threshold of the mask cube. Default is None.
+        kwargs: dict
+            The keyword arguments for the function, including:
+            dataset_name: str, optional
+                The name of the dataset. Default is "density". The available
+                datasets are: "density", "Vx", "Vy", "Vz", "Bx", "By", "Bz"
+                and "gravity_potential".
+            return_data_type: str, optional
+                The type of the data to return. Default is "masked".
+                - "subcube": the subcube data.
+                - "masked": the subcube data masked by the ROI and the
+                mask.
+                - "subcube_roi_mask": the subcube data, the ROI, and the mask.
+
+        Returns
+        -------
+        data: numpy.ndarray or tuple
+            The data of the mask cube by the threshold.
+            Or the tuple of the data, the ROI, and the mask.
+
+        """
+
+        if dataset_name not in self._extra_data.keys() and dataset_name != "density":
+            raise ValueError(f"The dataset name {dataset_name} is not in the extra data.")
+        
+        if (threshold is not None) and (threshold not in self.thresholds):
+            raise ValueError("The threshold is not in the thresholds.")
+
+        if dataset_name == "density":
+            return super().data(threshold=threshold, return_data_type=return_data_type)
+        else:
+            if threshold is None:
+                if return_data_type == "subcube":
+                    return self._extra_data[dataset_name]
+                elif return_data_type == "masked":
+                    return (
+                        self._extra_data[dataset_name]
+                        * self._mask
+                        * self.masks[self._get_threshold_of_largest_subcube()]
+                    )
+                elif return_data_type == "subcube_roi_mask":
+                    return (
+                        self._extra_data[dataset_name],
+                        self._mask,
+                        self.masks[self._get_threshold_of_largest_subcube()],
+                    )
+            else:
+                refpoint = self._pixel_coordinate_in_subcube(self.refpoints[threshold])
+                shape = self.masks[threshold].shape
+                data = self._extra_data[dataset_name][
+                    refpoint[0] : refpoint[0] + shape[0],
+                    refpoint[1] : refpoint[1] + shape[1],
+                    refpoint[2] : refpoint[2] + shape[2],
+                ]
+                roi = self._mask[
+                    refpoint[0] : refpoint[0] + shape[0],
+                    refpoint[1] : refpoint[1] + shape[1],
+                    refpoint[2] : refpoint[2] + shape[2],
+                ]
+                if return_data_type == "subcube":
+                    return data
+                elif return_data_type == "masked":
+                    return data * roi * self.masks[threshold]
+                elif return_data_type == "subcube_roi_mask":
+                    return data, roi, self.masks[threshold]
+                else:
+                    raise ValueError("The return_data_type is not valid.")
+
+    def update_data_mask(
+        self, new_data, new_extra_data, new_ROI, new_threshold, new_mask, new_refpoint
+    ):
+        for key in new_extra_data.keys():
+            if new_extra_data[key].shape != new_data.shape:
+                raise ValueError(
+                    f"Shape of new data and new extra data should be the same. {key} is not the same."
+                )
+        self._extra_data = new_extra_data
+
+        super().update_data_mask(
+            new_data, new_ROI, new_threshold, new_mask, new_refpoint
+        )
+
+    def dump(self, file_path):
+        """
+        Dump the CoreCube instance to a pickle file.
+        """
+        with open(file_path, "wb") as f:
+            pickle.dump(self, f)
 
 # test the class
 if __name__ == "__main__":

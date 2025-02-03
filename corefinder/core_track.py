@@ -247,7 +247,7 @@ class CoreTrack:
                 raise FileNotFoundError(f"File {file} not found")
         return file_list
 
-    def get_cores(self, directory: str) -> list["MaskCube"]:
+    def get_cores(self, directory: str) -> list["MaskCube"]:  #! change to CoreCube
         """
         load the cores from the directory
 
@@ -700,7 +700,9 @@ def tracks_branch(
                 for other_path in cluster_paths
                 if path != other_path
             ):
-                unique_paths.append(path)
+                unique_paths.append(path)  # ! Track the unique paths?
+                # currently, [A, B, C, D] and [A, B, C, E] are considered as two different paths
+                # this is because their terminal nodes are different
 
         result[f"cluster{i}"] = unique_paths
 
