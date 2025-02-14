@@ -1,4 +1,3 @@
-from hmac import new
 import pickle
 import os
 import numpy as np
@@ -695,11 +694,8 @@ def tracks_branch(
         # filter out the redundant paths
         unique_paths = []
         for path in cluster_paths:
-            if not any(
-                is_subsequence(path, other_path)
-                for other_path in cluster_paths
-                if path != other_path
-            ):
+            if not any(is_subsequence(path, other_path) for other_path in unique_paths):
+                # if path != other_path):
                 unique_paths.append(path)  # ! Track the unique paths?
                 # currently, [A, B, C, D] and [A, B, C, E] are considered as two different paths
                 # this is because their terminal nodes are different
