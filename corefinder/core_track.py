@@ -644,14 +644,17 @@ def tracks_branch(
 
     clusters = overlaps2tracks(overlaps, passing_node)
 
-    def is_subsequence(sub, main):
-        sub_len = len(sub)
-        main_len = len(main)
-        if sub_len > main_len:
-            return False
-        for i in range(main_len - sub_len + 1):
-            if main[i : i + sub_len] == sub:
-                return True
+    def is_continous_subset(a, b):
+        # if longer one contains shorter one, return True
+        # note the elements is ordered, ie, [1,2,3,4] not contain [1,3,4]
+        if len(a) <= len(b):
+            for i in range(len(b) - len(a) + 1):
+                if a == b[i:i+len(a)]:
+                    return True
+        else:
+            for i in range(len(a) - len(b) + 1):
+                if b == a[i:i+len(b)]:
+                    return True
         return False
 
     def dfs_chains(graph, node, visited, path, cluster_paths, recorded_paths):
@@ -690,17 +693,18 @@ def tracks_branch(
             if node not in visited:
                 path = []
                 dfs_chains(graph, node, visited, path, cluster_paths, recorded_paths)
-
         # filter out the redundant paths
-        unique_paths = []
-        for path in cluster_paths:
-            if not any(is_subsequence(path, other_path) for other_path in unique_paths):
-                # if path != other_path):
-                unique_paths.append(path)  # ! Track the unique paths?
-                # currently, [A, B, C, D] and [A, B, C, E] are considered as two different paths
-                # this is because their terminal nodes are different
+        # sort lists by length, from longest to shortest
+        cluster_paths = sorted(cluster_paths, key=lambda x: len(x), reverse=True)
+        unique_branches = []
+        for branch in cluster_paths:
+            if not any([is_continous_subset(branch, unique_branch) for unique_branch in unique_branches]):
+                unique_branches.append(branch)
+        # ! Track the unique paths?
+        # currently, [A, B, C, D] and [A, B, C, E] are considered as two different paths
+        # this is because their terminal nodes are different
 
-        result[f"cluster{i}"] = unique_paths
+        result[f"cluster{i}"] = unique_branches
 
     return result
 
