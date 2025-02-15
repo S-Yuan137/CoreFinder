@@ -623,108 +623,6 @@ class MaskCube(DataCube):
 
     def get_previous_structure(
         self,
-        threshold: float,
-        original_vx: np.ndarray,
-        original_vy: np.ndarray,
-        original_vz: np.ndarray,
-        time_step: float = 4,
-    ):
-        """
-        Get the previous structure of the subcube by the threshold, using passive tracer.
-
-        Parameters
-        ----------
-        threshold : float
-            The threshold to get the subcube.
-        original_vx : np.ndarray
-            The original velocity x component.
-        original_vy : np.ndarray
-            The original velocity y component.
-        original_vz : np.ndarray
-            The original velocity z component.
-        time_step : float, optional
-
-        Returns
-        -------
-        previous_structure : np.ndarray
-            The previous structure of the subcube by the threshold.
-
-        Notes
-        -----
-        - The passive tracer is used, i.e., the tracer is not affected by the each other.
-        And tracers do not change the velocity field.
-        - The time_step is in the unit of pixel_size. It is 4 in default resolution of
-        original data (960^3). More details see the `predict_next_position` method in
-        `SimCube` class.
-        """
-        if threshold not in self.thresholds:
-            raise ValueError("The threshold is not in the thresholds.")
-
-        mask = self.masks[threshold]
-        refpoint = self.refpoints[threshold]
-        # get coordinates of masked region ( true values in mask)
-        coord = np.argwhere(mask) + np.array(refpoint)
-        # here is a trick to avoid float -> int conversion by zeros_like
-        previous_coord = np.zeros_like(coord)
-        for i, c in enumerate(coord):
-            previous_coord[i] = coord[i] - time_step * np.array(
-                [
-                    original_vx[c[0], c[1], c[2]],
-                    original_vy[c[0], c[1], c[2]],
-                    original_vz[c[0], c[1], c[2]],
-                ]
-            )
-
-        new_refpoint = (
-            np.min(previous_coord[:, 0]),
-            np.min(previous_coord[:, 1]),
-            np.min(previous_coord[:, 2]),
-        )
-        new_shape = (
-            np.max(previous_coord[:, 0]) - new_refpoint[0] + 1,
-            np.max(previous_coord[:, 1]) - new_refpoint[1] + 1,
-            np.max(previous_coord[:, 2]) - new_refpoint[2] + 1,
-        )
-        new_mask = np.zeros(new_shape, dtype=bool)
-        for c in previous_coord:
-            new_mask[tuple(c - np.array(new_refpoint))] = True
-        # increase the robustness by removing small holes
-        new_mask = remove_small_holes(new_mask, area_threshold=64, out=new_mask)
-
-        def _previous_file_path(file_path):
-            # file_path = self.file_load_path in format of "/path/to/hdfaa.012"
-            # return "/path/to/hdfaa.011", note last is hdfaa.{snap:03d}
-            file_path = file_path.split(".")
-            file_path[-1] = f"{int(file_path[-1])-1:03d}"
-            return ".".join(file_path)
-
-        # ! Future work: add ROI
-        output = MaskCube(
-            np.ones_like(new_mask, dtype=int),
-            np.ones_like(new_mask, dtype=bool),
-            {threshold: new_mask},
-            {threshold: new_refpoint},
-            internal_id=-int(
-                self.internal_id
-            ),  # negative internal_id for previous structure
-            snapshot=self.snapshot - 1,  # previous snapshot
-            phyinfo=self.phyinfo,
-            file_load_path=_previous_file_path(self.file_load_path),
-            original_shape=self.original_shape,
-        )
-
-        original_den_pre = output.load_one_h5_data(
-            "gas_density", file_load_path=output.file_load_path
-        )
-        new_data = MaskCube.get_subcube_from_rawcube(
-            new_refpoint, new_shape, original_den_pre, periodic_boundary=True
-        )
-
-        output._update_data(new_data, np.ones_like(new_data, dtype=bool))
-        return output
-
-    def get_previous_structure2(
-        self,
         threshold: float = -2,
         time_step: float = 4,
     ):
@@ -761,6 +659,8 @@ class MaskCube(DataCube):
             prev_vy = f["j_velocity"][...].T
             prev_vz = f["k_velocity"][...].T
 
+        assert prev_den.shape == prev_vx.shape == prev_vy.shape == prev_vz.shape
+        assert prev_den.shape == self.original_shape
         mask = self.masks[threshold]
         refpoint = self.refpoints[threshold]
         # get coordinates of masked region ( true values in mask)
@@ -768,11 +668,15 @@ class MaskCube(DataCube):
         # here is a trick to avoid float -> int conversion by zeros_like
         previous_coord = np.zeros_like(coord)
         for i, c in enumerate(coord):
+            # deal with periodic boundary
+            cx = c[0] if c[0] < self.original_shape[0] else c[0] - self.original_shape[0]
+            cy = c[1] if c[1] < self.original_shape[1] else c[1] - self.original_shape[1]
+            cz = c[2] if c[2] < self.original_shape[2] else c[2] - self.original_shape[2]
             previous_coord[i] = coord[i] - time_step * np.array(
                 [
-                    prev_vx[c[0], c[1], c[2]],
-                    prev_vy[c[0], c[1], c[2]],
-                    prev_vz[c[0], c[1], c[2]],
+                    prev_vx[cx, cy, cz],
+                    prev_vy[cx, cy, cz],
+                    prev_vz[cx, cy, cz],
                 ]
             )
 
