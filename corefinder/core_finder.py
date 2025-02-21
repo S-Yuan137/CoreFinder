@@ -705,7 +705,7 @@ class MaskCube(DataCube):
             {threshold: prev_mask},
             {threshold: prev_refpoint},
             internal_id=-int(
-                self.internal_id
+                abs(self.internal_id)
             ),  # negative internal_id for previous structure
             snapshot=self.snapshot - 1,  # previous snapshot
             phyinfo=self.phyinfo,
