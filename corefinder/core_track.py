@@ -2,7 +2,7 @@ import pickle
 import os
 import numpy as np
 from collections import deque, defaultdict
-from .core_finder import MaskCube
+from .core_finder import MaskCube, CoreCube
 
 
 def is_moving(next_overlap_tuple: tuple) -> int | None:
@@ -230,15 +230,37 @@ class CoreTrack:
     def __iter__(self):
         return iter(self.track)
 
-    def get_file_list(self, directory: str) -> list[str]:
+    def get_file_list(self, directory: str, file_name_format: str) -> list[str]:
+        """get a list of file names based on the track
+
+        Parameters
+        ----------
+        directory : str
+            The directory where the files are stored.
+        file_name_format : str
+            The format of the file name. It should contain the format string
+            for snap and coreID, e.g., "core_snap{snap:03d}_id{coreID:03d}.pickle"
+
+        Returns
+        -------
+        list[str]
+            The list of file names.
+
+        Raises
+        ------
+        FileNotFoundError
+            If the file is not found.
+        """
+        
         # this is based on the naming convention of the files
         # clump_core_snap{snap:03d}_id{coreID:03d}.pickle
         #
         file_list = []
         for snap, coreID in self.track:
             if isinstance(coreID, int):
+                formatted_file_name = file_name_format.format(snap=snap, coreID=coreID)
                 file_list.append(
-                    f"{directory}/clump_core_snap{snap:03d}_id{coreID:03d}.pickle"
+                    f"{directory}/{formatted_file_name}"
                 )
         # verify that all files exist
         for file in file_list:
@@ -246,7 +268,7 @@ class CoreTrack:
                 raise FileNotFoundError(f"File {file} not found")
         return file_list
 
-    def get_cores(self, directory: str) -> list["MaskCube"]:  #! change to CoreCube
+    def get_cores(self, directory: str, file_name_format: str) -> list["MaskCube" | "CoreCube"]:
         """
         load the cores from the directory
 
@@ -256,25 +278,11 @@ class CoreTrack:
             The list of MaskCube objects
         """
         cores = []
-        for snap, coreID in self.track:
-            if coreID != 0 and isinstance(coreID, int):
-                with open(
-                    f"{directory}/clump_core_snap{snap:03d}_id{coreID:03d}.pickle", "rb"
-                ) as f:
-                    core = pickle.load(f)
-                cores.append(core)
-            else:
-                cores.append(
-                    MaskCube(
-                        np.zeros((1, 1, 1)),
-                        np.ones((1, 1, 1), dtype=bool),
-                        {0: np.ones((1, 1, 1), dtype=bool)},
-                        {0: (0, 0, 0)},
-                        internal_id=0,
-                        snapshot=snap,
-                        file_load_path="placeholder",
-                    )
-                )
+        file_list = self.get_file_list(directory, file_name_format)
+        for file in file_list:
+            with open(file, "rb") as f:
+                core = pickle.load(f)
+            cores.append(core)
         return cores
 
     def get_filled_canvas3d_list_float_position(
