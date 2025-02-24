@@ -469,16 +469,16 @@ class CoreTrack:
             min_ys = np.array([ref[1] for ref in refpoints])
             min_zs = np.array([ref[2] for ref in refpoints])
 
-            temp_x_sizes = max_xs - min_xs
-            temp_y_sizes = max_ys - min_ys
-            temp_z_sizes = max_zs - min_zs
-            temp_x_sizes[temp_x_sizes >= original_size[0]] -= original_size[0]
-            temp_y_sizes[temp_y_sizes >= original_size[1]] -= original_size[1]
-            temp_z_sizes[temp_z_sizes >= original_size[2]] -= original_size[2]
+            # temp_x_sizes = max_xs - min_xs
+            # temp_y_sizes = max_ys - min_ys
+            # temp_z_sizes = max_zs - min_zs
+            # temp_x_sizes[temp_x_sizes >= original_size[0]] -= original_size[0]
+            # temp_y_sizes[temp_y_sizes >= original_size[1]] -= original_size[1]
+            # temp_z_sizes[temp_z_sizes >= original_size[2]] -= original_size[2]
             
-            bounding_x = temp_x_sizes.max()
-            bounding_y = temp_y_sizes.max()
-            bounding_z = temp_z_sizes.max()
+            # bounding_x = temp_x_sizes.max()
+            # bounding_y = temp_y_sizes.max()
+            # bounding_z = temp_z_sizes.max()
             
             # refpoints of the most lower-left point
             # find the element >=960  and subtract 960 for them
@@ -488,6 +488,10 @@ class CoreTrack:
             min_x =  np.array([ref[0] for ref in refpoints])[min_xs.argmin()]
             min_y =  np.array([ref[1] for ref in refpoints])[min_ys.argmin()]
             min_z =  np.array([ref[2] for ref in refpoints])[min_zs.argmin()]
+            
+            bounding_x = (max_xs - min_x).max()
+            bounding_y = (max_ys - min_y).max()
+            bounding_z = (max_zs - min_z).max()
             
             return (bounding_x, bounding_y, bounding_z), (min_x, min_y, min_z)
 
