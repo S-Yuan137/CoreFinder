@@ -325,13 +325,13 @@ class CoreTrack:
             min_y = min([ref[1] for ref in refs])
             min_z = min([ref[2] for ref in refs])
 
-            # deal with the case where the canvas is larger than the original size
-            if max_x - min_x >= original_size[0]:
-                min_x += original_size[0]
-            if max_y - min_y >= original_size[1]:
-                min_y += original_size[1]
-            if max_z - min_z >= original_size[2]:
-                min_z += original_size[2]
+            # # deal with the case where the canvas is larger than the original size
+            # if max_x - min_x >= original_size[0]:
+            #     min_x += original_size[0]
+            # if max_y - min_y >= original_size[1]:
+            #     min_y += original_size[1]
+            # if max_z - min_z >= original_size[2]:
+            #     min_z += original_size[2]
             
             return max_x - min_x, max_y - min_y, max_z - min_z
 
@@ -353,9 +353,9 @@ class CoreTrack:
             for ref, size, data in zip(refs, sizes, datas):
                 x, y, z = ref
                 
-                start_x = x - min_x if x - min_x < original_size[0] else x - min_x - original_size[0]
-                start_y = y - min_y if y - min_y < original_size[1] else y - min_y - original_size[1]
-                start_z = z - min_z if z - min_z < original_size[2] else z - min_z - original_size[2]
+                start_x = x - min_x
+                start_y = y - min_y
+                start_z = z - min_z
                 
                 canvas[
                     start_x : start_x + size[0],
