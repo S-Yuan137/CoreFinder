@@ -509,7 +509,8 @@ class CoreTrack:
             bounding_x = temp_max_x - temp_min_x
             bounding_y = temp_max_y - temp_min_y
             bounding_z = temp_max_z - temp_min_z
-            
+            print(f"min_x: {min_x}, min_y: {min_y}, min_z: {min_z}")
+            print(f"bounding_x: {bounding_x}, bounding_y: {bounding_y}, bounding_z: {bounding_z}")
             return (bounding_x, bounding_y, bounding_z), (min_x, min_y, min_z)
 
         bc_size, min_ref_bc = get_bounding_canvas_size(canvs3d_list, refpoints)
