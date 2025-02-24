@@ -268,7 +268,7 @@ class CoreTrack:
                 raise FileNotFoundError(f"File {file} not found")
         return file_list
 
-    def get_cores(self, directory: str, file_name_format: str) -> list["MaskCube" | "CoreCube"]:
+    def get_cores(self, directory: str, file_name_format: str) -> list["MaskCube"] | list["CoreCube"]:
         """
         load the cores from the directory
 
