@@ -316,24 +316,35 @@ class CoreTrack:
             """
             Get the size of the canvas for plotting
             """
-            # get the maximum x and y
-            max_x = max([ref[0] + size[0] for ref, size in zip(refs, sizes)])
-            max_y = max([ref[1] + size[1] for ref, size in zip(refs, sizes)])
-            max_z = max([ref[2] + size[2] for ref, size in zip(refs, sizes)])
             # get the minimum x, y, z
-            min_x = min([ref[0] for ref in refs])
-            min_y = min([ref[1] for ref in refs])
-            min_z = min([ref[2] for ref in refs])
+            min_xs = np.array([ref[0] for ref in refs])
+            min_ys = np.array([ref[1] for ref in refs])
+            min_zs = np.array([ref[2] for ref in refs])
 
-            # # deal with the case where the canvas is larger than the original size
-            # if max_x - min_x >= original_size[0]:
-            #     min_x += original_size[0]
-            # if max_y - min_y >= original_size[1]:
-            #     min_y += original_size[1]
-            # if max_z - min_z >= original_size[2]:
-            #     min_z += original_size[2]
+            min_xs[min_xs >= original_size[0]] -= original_size[0]
+            min_ys[min_ys >= original_size[1]] -= original_size[1]
+            min_zs[min_zs >= original_size[2]] -= original_size[2]
             
-            return max_x - min_x, max_y - min_y, max_z - min_z
+            max_xs = min_xs + np.array([size[0] for size in sizes])
+            max_ys = min_ys + np.array([size[1] for size in sizes])
+            max_zs = min_zs + np.array([size[2] for size in sizes])
+            
+            temp_min_x = min_xs.min()
+            temp_min_y = min_ys.min()
+            temp_min_z = min_zs.min()
+            temp_max_x = max_xs.max()
+            temp_max_y = max_ys.max()
+            temp_max_z = max_zs.max()
+            
+            min_x =  np.array([ref[0] for ref in refs])[min_xs.argmin()]
+            min_y =  np.array([ref[1] for ref in refs])[min_ys.argmin()]
+            min_z =  np.array([ref[2] for ref in refs])[min_zs.argmin()]
+            bounding_x = temp_max_x - temp_min_x
+            bounding_y = temp_max_y - temp_min_y
+            bounding_z = temp_max_z - temp_min_z
+            
+            return (bounding_x, bounding_y, bounding_z), (min_x, min_y, min_z)
+            
 
         def fill_in_canvas(
             refs: list[tuple[int, int, int]],
@@ -345,11 +356,8 @@ class CoreTrack:
             """
             Fill in the canvas with the data
             """
-            # find the (0,0,0) point in the refs
-            min_x = min([ref[0] for ref in refs])
-            min_y = min([ref[1] for ref in refs])
-            min_z = min([ref[2] for ref in refs])
-            
+            _, min_ref = get_canvas_size(refs, sizes, original_size)
+            min_x, min_y, min_z = min_ref
             for ref, size, data in zip(refs, sizes, datas):
                 x, y, z = ref
                 
@@ -395,7 +403,7 @@ class CoreTrack:
                         coreslist[ii].data(threshold, return_data_type="masked")
                     )
                     ii += 1
-                canvas = np.zeros(get_canvas_size(temp_refs, temp_sizes))
+                canvas = np.zeros(get_canvas_size(temp_refs, temp_sizes)[0])
                 canvas, new_ref = fill_in_canvas(
                     temp_refs, temp_sizes, temp_datas, canvas
                 )
@@ -460,38 +468,47 @@ class CoreTrack:
             """
             Get the size of the bounding canvas for plotting
             """
-            # get the maximum x and y
-            max_xs = np.array([ref[0] + canvas.shape[0] for ref, canvas in zip(refpoints, canvases)])
-            max_ys = np.array([ref[1] + canvas.shape[1] for ref, canvas in zip(refpoints, canvases)])
-            max_zs = np.array([ref[2] + canvas.shape[2] for ref, canvas in zip(refpoints, canvases)])
             # get the minimum x, y, z
             min_xs = np.array([ref[0] for ref in refpoints])
             min_ys = np.array([ref[1] for ref in refpoints])
             min_zs = np.array([ref[2] for ref in refpoints])
 
-            # temp_x_sizes = max_xs - min_xs
-            # temp_y_sizes = max_ys - min_ys
-            # temp_z_sizes = max_zs - min_zs
-            # temp_x_sizes[temp_x_sizes >= original_size[0]] -= original_size[0]
-            # temp_y_sizes[temp_y_sizes >= original_size[1]] -= original_size[1]
-            # temp_z_sizes[temp_z_sizes >= original_size[2]] -= original_size[2]
+            # check canvas size not exceed the original size
+            temp_x_sizes = np.array([canvas.shape[0] for canvas in canvases])
+            temp_y_sizes = np.array([canvas.shape[1] for canvas in canvases])
+            temp_z_sizes = np.array([canvas.shape[2] for canvas in canvases])
             
-            # bounding_x = temp_x_sizes.max()
-            # bounding_y = temp_y_sizes.max()
-            # bounding_z = temp_z_sizes.max()
+            if (temp_x_sizes >= original_size[0]).any():
+                print("Warning: canvas size exceeds the original size in x")
+            if (temp_y_sizes >= original_size[1]).any():
+                print("Warning: canvas size exceeds the original size in y")
+            if (temp_z_sizes >= original_size[2]).any():
+                print("Warning: canvas size exceeds the original size in z")
             
-            # refpoints of the most lower-left point
-            # find the element >=960  and subtract 960 for them
+            # make sure min_x, min_y, min_z are within the original size
             min_xs[min_xs >= original_size[0]] -= original_size[0]
             min_ys[min_ys >= original_size[1]] -= original_size[1]
             min_zs[min_zs >= original_size[2]] -= original_size[2]
+            max_xs = min_xs + np.array([canvas.shape[0] for canvas in canvases])
+            max_ys = min_ys + np.array([canvas.shape[1] for canvas in canvases])
+            max_zs = min_zs + np.array([canvas.shape[2] for canvas in canvases])
+            
+            temp_min_x = min_xs.min()
+            temp_min_y = min_ys.min()
+            temp_min_z = min_zs.min()
+            temp_max_x = max_xs.max()
+            temp_max_y = max_ys.max()
+            temp_max_z = max_zs.max()
+            
+            
+            # refpoints of the most lower-left point
+            # find the element >=960  and subtract 960 for them
             min_x =  np.array([ref[0] for ref in refpoints])[min_xs.argmin()]
             min_y =  np.array([ref[1] for ref in refpoints])[min_ys.argmin()]
             min_z =  np.array([ref[2] for ref in refpoints])[min_zs.argmin()]
-            
-            bounding_x = (max_xs - min_x).max()
-            bounding_y = (max_ys - min_y).max()
-            bounding_z = (max_zs - min_z).max()
+            bounding_x = temp_max_x - temp_min_x
+            bounding_y = temp_max_y - temp_min_y
+            bounding_z = temp_max_z - temp_min_z
             
             return (bounding_x, bounding_y, bounding_z), (min_x, min_y, min_z)
 
