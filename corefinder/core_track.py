@@ -286,7 +286,7 @@ class CoreTrack:
         return cores
 
     def get_filled_canvas3d_list_float_position(
-        self, coreslist: list["MaskCube"] = None, threshold: float = 17.682717 * 30
+        self, coreslist: list["MaskCube"] | list["CoreCube"] = None, threshold: float = 17.682717 * 30
     ) -> tuple[list[np.ndarray], list[tuple[int, int, int]]]:
         """
         Fill in the canvas with the data (masked_density in MaskCube list), where the
@@ -364,7 +364,7 @@ class CoreTrack:
             num_cross_clumps = count[idx]
             if num_cross_clumps == 1:
                 filled_canvas_list.append(
-                    coreslist[ii].data(threshold, return_data_type="masked_density")
+                    coreslist[ii].data(threshold, return_data_type="masked")
                 )
                 canvas_refpoints.append(coreslist[ii].refpoints[threshold])
                 ii += 1
@@ -376,7 +376,7 @@ class CoreTrack:
                     temp_refs.append(coreslist[ii].refpoints[threshold])
                     temp_sizes.append(coreslist[ii].masks[threshold].shape)
                     temp_datas.append(
-                        coreslist[ii].data(threshold, return_data_type="masked_density")
+                        coreslist[ii].data(threshold, return_data_type="masked")
                     )
                     ii += 1
                 canvas = np.zeros(get_canvas_size(temp_refs, temp_sizes))
