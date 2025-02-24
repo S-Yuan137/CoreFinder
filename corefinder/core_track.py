@@ -430,7 +430,7 @@ class CoreTrack:
             coreslist, threshold
         )
 
-        def get_bounding_canvas_size(
+        def get_bounding_canvas_size_wrong(
             canvases: list[np.ndarray], refpoints: list[tuple[int, int, int]]
         ) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
             """
@@ -452,6 +452,44 @@ class CoreTrack:
             min_z = min([ref[2] for ref in refpoints])
 
             return (max_x - min_x, max_y - min_y, max_z - min_z), (min_x, min_y, min_z)
+        
+        def get_bounding_canvas_size(
+            canvases: list[np.ndarray], refpoints: list[tuple[int, int, int]],
+            original_size: tuple[int, int, int] = (960, 960, 960)
+        ) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
+            """
+            Get the size of the bounding canvas for plotting
+            """
+            # get the maximum x and y
+            max_xs = np.array([ref[0] + canvas.shape[0] for ref, canvas in zip(refpoints, canvases)])
+            max_ys = np.array([ref[1] + canvas.shape[1] for ref, canvas in zip(refpoints, canvases)])
+            max_zs = np.array([ref[2] + canvas.shape[2] for ref, canvas in zip(refpoints, canvases)])
+            # get the minimum x, y, z
+            min_xs = np.array([ref[0] for ref in refpoints])
+            min_ys = np.array([ref[1] for ref in refpoints])
+            min_zs = np.array([ref[2] for ref in refpoints])
+
+            temp_x_sizes = max_xs - min_xs
+            temp_y_sizes = max_ys - min_ys
+            temp_z_sizes = max_zs - min_zs
+            temp_x_sizes[temp_x_sizes >= original_size[0]] -= original_size[0]
+            temp_y_sizes[temp_y_sizes >= original_size[1]] -= original_size[1]
+            temp_z_sizes[temp_z_sizes >= original_size[2]] -= original_size[2]
+            
+            bounding_x = temp_x_sizes.max()
+            bounding_y = temp_y_sizes.max()
+            bounding_z = temp_z_sizes.max()
+            
+            # refpoints of the most lower-left point
+            # find the element >=960  and subtract 960 for them
+            min_xs[min_xs >= original_size[0]] -= original_size[0]
+            min_ys[min_ys >= original_size[1]] -= original_size[1]
+            min_zs[min_zs >= original_size[2]] -= original_size[2]
+            min_x =  np.array([ref[0] for ref in refpoints])[min_xs.argmin()]
+            min_y =  np.array([ref[1] for ref in refpoints])[min_ys.argmin()]
+            min_z =  np.array([ref[2] for ref in refpoints])[min_zs.argmin()]
+            
+            return (bounding_x, bounding_y, bounding_z), (min_x, min_y, min_z)
 
         bc_size, min_ref_bc = get_bounding_canvas_size(canvs3d_list, refpoints)
         fixed_position_canvs3d_list = []
