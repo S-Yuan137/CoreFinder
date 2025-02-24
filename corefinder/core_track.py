@@ -310,7 +310,8 @@ class CoreTrack:
         """
 
         def get_canvas_size(
-            refs: list[tuple[int, int, int]], sizes: list[tuple[int, int, int]]
+            refs: list[tuple[int, int, int]], sizes: list[tuple[int, int, int]],
+            original_size: tuple[int, int, int] = (960, 960, 960)
         ) -> tuple[int, int, int]:
             """
             Get the size of the canvas for plotting
@@ -324,6 +325,14 @@ class CoreTrack:
             min_y = min([ref[1] for ref in refs])
             min_z = min([ref[2] for ref in refs])
 
+            # deal with the case where the canvas is larger than the original size
+            if max_x - min_x >= original_size[0]:
+                min_x += original_size[0]
+            if max_y - min_y >= original_size[1]:
+                min_y += original_size[1]
+            if max_z - min_z >= original_size[2]:
+                min_z += original_size[2]
+            
             return max_x - min_x, max_y - min_y, max_z - min_z
 
         def fill_in_canvas(
@@ -331,6 +340,7 @@ class CoreTrack:
             sizes: list[tuple[int, int, int]],
             datas: list[np.ndarray],
             canvas: np.ndarray,
+            original_size: tuple[int, int, int] = (960, 960, 960),
         ):
             """
             Fill in the canvas with the data
@@ -339,12 +349,18 @@ class CoreTrack:
             min_x = min([ref[0] for ref in refs])
             min_y = min([ref[1] for ref in refs])
             min_z = min([ref[2] for ref in refs])
+            
             for ref, size, data in zip(refs, sizes, datas):
                 x, y, z = ref
+                
+                start_x = x - min_x if x - min_x < original_size[0] else x - min_x - original_size[0]
+                start_y = y - min_y if y - min_y < original_size[1] else y - min_y - original_size[1]
+                start_z = z - min_z if z - min_z < original_size[2] else z - min_z - original_size[2]
+                
                 canvas[
-                    x - min_x : x - min_x + size[0],
-                    y - min_y : y - min_y + size[1],
-                    z - min_z : z - min_z + size[2],
+                    start_x : start_x + size[0],
+                    start_y : start_y + size[1],
+                    start_z : start_z + size[2],
                 ] = data
             return canvas, (min_x, min_y, min_z)
 
