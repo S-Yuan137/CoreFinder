@@ -1,3 +1,8 @@
 numpy>=2.0.0
 connected-components-3d>=3.18.0
 scikit-image>=0.24.0
+h5py>=3.10.0
+
+# Optional dependencies
+matplotlib>=3.9.0
+scikit-learn>=1.5.0
