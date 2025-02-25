@@ -1,3 +1,4 @@
+from hmac import new
 import numpy as np
 import cc3d
 import h5py
@@ -1613,6 +1614,21 @@ class CoreCube(MaskCube):
                     return data, roi, self.masks[threshold]
                 else:
                     raise ValueError("The return_data_type is not valid.")
+    # ! unfinished TODO
+    def get_previous_structure(self, threshold = -2, time_step = 4):
+        maskcube = super().get_previous_structure(threshold, time_step)
+        maskcube.find_core(target_mass=threshold)  #! need to think about the low mass clump
+        data, ROI, mask = maskcube.data(threshold=threshold, return_data_type="subcube_roi_mask")
+        extra_data = {}
+        corecube = CoreCube(data, extra_data,ROI, 
+                            {threshold: mask}, 
+                            {threshold: maskcube.refpoints[threshold]},
+                            internal_id=maskcube.internal_id,
+                            snapshot=maskcube.snapshot,
+                            phyinfo=maskcube.phyinfo,
+                            file_load_path=maskcube.file_load_path,
+                            original_shape=maskcube.original_shape)
+        return corecube
 
     def update_data_mask(
         self, new_data, new_extra_data, new_ROI, new_threshold, new_mask, new_refpoint
