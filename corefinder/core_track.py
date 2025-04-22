@@ -793,6 +793,129 @@ def tracks_branch(
     return result
 
 
+def get_clusters_branches( overlaps: list["OverLap"]) -> dict[str, list["CoreTrack"]]:
+    """
+    Get the clusters and branches from the overlaps.
+
+    Parameters
+    ----------
+    overlaps : list[OverLap]
+        A list of OverLap objects.
+
+    Returns
+    -------
+    branches : dict[str, list[CoreTrack]]
+        A dictionary of branches. The key is the branch name, and the value is
+        a list of CoreTrack objects.
+    """
+    def analyze_mappings(mappings):
+        # Step 1: Process mappings into children and parents
+        children = defaultdict(list)
+        parents = defaultdict(list)
+        for key, value in mappings.items():
+            if isinstance(value, list):
+                vals = value
+            else:
+                vals = [value]
+            children[key].extend(vals)
+            for v in vals:
+                parents[v].append(key)
+        
+        # Step 2: Collect all nodes
+        nodes = set()
+        nodes.update(children.keys())
+        for vs in children.values():
+            nodes.update(vs)
+        nodes.update(parents.keys())
+        for ps in parents.values():
+            nodes.update(ps)
+        nodes = list(nodes)
+        
+        # Step 3: Build undirected graph adjacency list
+        undirected = defaultdict(set)
+        for node in nodes:
+            # Add children as neighbors
+            for child in children.get(node, []):
+                undirected[node].add(child)
+                undirected[child].add(node)
+            # Add parents as neighbors
+            for parent in parents.get(node, []):
+                undirected[node].add(parent)
+                undirected[parent].add(node)
+        
+        # Step 4: Find connected components (clusters) using BFS
+        visited = set()
+        clusters = []
+        for node in nodes:
+            if node not in visited:
+                queue = [node]
+                visited.add(node)
+                cluster = []
+                while queue:
+                    current = queue.pop(0)
+                    cluster.append(current)
+                    for neighbor in undirected[current]:
+                        if neighbor not in visited:
+                            visited.add(neighbor)
+                            queue.append(neighbor)
+                clusters.append(cluster)
+        
+        # Step 5 & 6: Process each cluster to find roots and paths
+        result = {}
+        for i, cluster in enumerate(clusters):
+            cluster_set = set(cluster)
+            # Find root nodes in the cluster
+            roots = []
+            for node in cluster:
+                is_root = True
+                for parent in parents.get(node, []):
+                    if parent in cluster_set:
+                        is_root = False
+                        break
+                if is_root:
+                    roots.append(node)
+            # Generate paths from each root
+            paths = []
+            for root in roots:
+                stack = [(root, [root])]
+                while stack:
+                    current_node, current_path = stack.pop()
+                    # Get children in the cluster
+                    children_in_cluster = []
+                    for child in children.get(current_node, []):
+                        if child in cluster_set:
+                            children_in_cluster.append(child)
+                    if not children_in_cluster:
+                        paths.append(current_path)
+                    else:
+                        for child in reversed(children_in_cluster):  # To maintain order as per example
+                            # Check if child is not already in path to avoid cycles
+                            if child not in current_path:
+                                stack.append((child, current_path + [child]))
+            # Prepare cluster's nodes in sorted order for readability
+            sorted_cluster = sorted(cluster)
+            # Sort paths for consistent output
+            sorted_paths = sorted(paths, key=lambda x: (len(x), x))
+            # Format the result entry
+            result[f"cluster{i}"] = sorted_cluster
+            result[f"paths_in_cluster{i}"] = sorted_paths
+        
+        return result
+    # Convert overlaps to mappings
+    mappings = {}
+    for overlap in overlaps:
+        overlap.filter_overlap(0.01)
+        snap = overlap.snap
+        for key, value in overlap.get_next_core().items():
+            if len(value) == 1:
+                mappings[(snap, int(key))] = [(snap + 1, value[0])]
+            elif len(value) > 1:
+                mappings[(snap, int(key))] = [(snap + 1, int(v)) for v in value]
+    # Analyze the mappings to get clusters and branches
+    result = analyze_mappings(mappings)
+    return result
+    
+
 if __name__ == "__main__":
     # ================= Test CoreTrack =================
     # track = [(20, 1), (21, 1), (22, 1), (23, 1), (24, 1), (25, 2)]

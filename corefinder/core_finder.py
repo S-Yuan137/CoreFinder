@@ -803,7 +803,7 @@ class MaskCube(DataCube):
                 raise ValueError("Clump threshold must be positive.")
             elif clump_threshold not in self.thresholds:
                 raise ValueError(
-                    "Clump threshold is not in the thresholds. If it has to"
+                    "Clump threshold is not in the thresholds. If it has to "
                     "be a new threshold, please use find_clump() method first."
                 )
         clump_mask = self.masks[clump_threshold]
