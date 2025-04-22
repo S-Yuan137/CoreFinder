@@ -861,7 +861,8 @@ def get_clusters_branches( overlaps: list["OverLap"]) -> dict[str, list["CoreTra
                 clusters.append(cluster)
         
         # Step 5 & 6: Process each cluster to find roots and paths
-        result = {}
+        clusters = {}
+        branches_in_cluster = {}
         for i, cluster in enumerate(clusters):
             cluster_set = set(cluster)
             # Find root nodes in the cluster
@@ -897,10 +898,10 @@ def get_clusters_branches( overlaps: list["OverLap"]) -> dict[str, list["CoreTra
             # Sort paths for consistent output
             sorted_paths = sorted(paths, key=lambda x: (len(x), x))
             # Format the result entry
-            result[f"cluster{i}"] = sorted_cluster
-            result[f"paths_in_cluster{i}"] = sorted_paths
+            clusters[f"cluster{i}"] = sorted_cluster
+            branches_in_cluster[f"branches_in_cluster{i}"] = sorted_paths
         
-        return result
+        return clusters, branches_in_cluster
     # Convert overlaps to mappings
     mappings = {}
     for overlap in overlaps:
@@ -912,8 +913,8 @@ def get_clusters_branches( overlaps: list["OverLap"]) -> dict[str, list["CoreTra
             elif len(value) > 1:
                 mappings[(snap, int(key))] = [(snap + 1, int(v)) for v in value]
     # Analyze the mappings to get clusters and branches
-    result = analyze_mappings(mappings)
-    return result
+    clusters, branches_in_cluster = analyze_mappings(mappings)
+    return clusters, branches_in_cluster
     
 
 if __name__ == "__main__":
