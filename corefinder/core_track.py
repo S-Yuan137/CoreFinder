@@ -793,7 +793,7 @@ def tracks_branch(
     return result
 
 
-def get_clusters_branches( overlaps: list["OverLap"]) -> dict[str, list["CoreTrack"]]:
+def get_clusters_branches(overlaps: list["OverLap"]) -> dict[str, list["CoreTrack"]]:
     """
     Get the clusters and branches from the overlaps.
 
@@ -861,8 +861,8 @@ def get_clusters_branches( overlaps: list["OverLap"]) -> dict[str, list["CoreTra
                 clusters.append(cluster)
         
         # Step 5 & 6: Process each cluster to find roots and paths
-        clusters = {}
-        branches_in_cluster = {}
+        result_clusters = {}
+        result_branches_in_cluster = {}
         for i, cluster in enumerate(clusters):
             cluster_set = set(cluster)
             # Find root nodes in the cluster
@@ -898,10 +898,10 @@ def get_clusters_branches( overlaps: list["OverLap"]) -> dict[str, list["CoreTra
             # Sort paths for consistent output
             sorted_paths = sorted(paths, key=lambda x: (len(x), x))
             # Format the result entry
-            clusters[f"cluster{i}"] = sorted_cluster
-            branches_in_cluster[f"branches_in_cluster{i}"] = sorted_paths
+            result_clusters[f"cluster{i}"] = sorted_cluster
+            result_branches_in_cluster[f"branches_in_cluster{i}"] = sorted_paths
         
-        return clusters, branches_in_cluster
+        return result_clusters, result_branches_in_cluster
     # Convert overlaps to mappings
     mappings = {}
     for overlap in overlaps:
