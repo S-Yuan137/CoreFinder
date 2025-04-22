@@ -258,6 +258,8 @@ class CoreTrack:
         file_list = []
         for snap, coreID in self.track:
             if isinstance(coreID, int):
+                if coreID == 0:  # background, skip, normally it should be the last one in a track
+                    break
                 formatted_file_name = file_name_format.format(snap=snap, coreID=coreID)
                 file_list.append(
                     f"{directory}/{formatted_file_name}"
