@@ -1,4 +1,3 @@
-from hmac import new
 import numpy as np
 import cc3d
 import h5py
@@ -1614,6 +1613,94 @@ class CoreCube(MaskCube):
                     return data, roi, self.masks[threshold]
                 else:
                     raise ValueError("The return_data_type is not valid.")
+    
+    def find_core(
+        self,
+        target_mass: float,
+        parental_threshold: float = None,
+        **kargs,
+    ):
+        """
+        Find the core by the target mass in the parental structure. The core will be stored in the
+        mask cube automatically. Enhance the MaskCube.find_core() method.
+
+        Parameters
+        ----------
+        target_mass : float
+            The target mass of the core. It must be negative. For example, -2.0 is used
+            for 2.0 Msun, where `-` is used to distinguish from the clump threshold.
+        parental_threshold : float, optional
+            the threshold of the parental structure. The default is None, which means
+            the largest volume core (mast massive) will be used. The threshold can be
+            negative.
+        Notes
+        -----
+        For details of the core finding, see the `MaskCube.get_fixed_mass_core` method
+        as below:
+        ```
+        Parameters in get_fixed_mass_core
+        ----------------------------------
+        masked_data: numpy.ndarray
+            The masked data. Note it also can be unmasked data.
+        target_mass: float
+            The target mass of the core.
+        kwargs: dict
+            The keyword arguments for the function, including:
+            tolerance: float, optional
+                The relative tolerance of the mass. Default is 0.05.
+            max_iteration: int, optional
+                The maximum iteration. Default is 50.
+            num_sequence: int, optional
+                The number of the search sequence. Default is 50.
+            refine: bool, optional
+                Whether to refine the core mass. Default is True.
+        ```
+        """
+
+        if target_mass >= 0:
+            raise ValueError(
+                "Threshold (target_mass) must be negative for core, like -2"
+                " for 2 Msun"
+            )
+        if parental_threshold is None:
+            # will use the most massive core as the parental structure
+            parental_threshold = min(self.thresholds[self.thresholds < 0])
+        else:
+            if parental_threshold not in self.thresholds:
+                raise ValueError(
+                    "Clump threshold is not in the thresholds. If it has to "
+                    "be a new threshold, please use find_clump() method first."
+                )
+        clump_mask = self.masks[parental_threshold]
+        clump_refpoint = self.refpoints[parental_threshold]
+        # data_refpoint = self.refpoints[self._get_threshold_of_largest_subcube()]
+        # relative_coord = MaskCube._compute_relative_coord(
+        #     data_refpoint, clump_refpoint, original_shape
+        # )
+        relative_coord = self._pixel_coordinate_in_subcube(clump_refpoint)
+        clump = self._data[
+            relative_coord[0] : relative_coord[0] + clump_mask.shape[0],
+            relative_coord[1] : relative_coord[1] + clump_mask.shape[1],
+            relative_coord[2] : relative_coord[2] + clump_mask.shape[2],
+        ]
+        clump = clump * clump_mask
+        # core will has the same shape as clump which is used to find the core
+        if "pixel_length" not in kargs:
+            pixel_length = self.phyinfo["pixel_size"]
+        else:
+            pixel_length = kargs["pixel_length"]
+            kargs.pop("pixel_length")  # avoid the repeated keyword
+        core_mask = MaskCube.get_fixed_mass_core(
+            clump, -target_mass, pixel_length=pixel_length, **kargs
+        )
+        if isinstance(core_mask, str):
+            print("Warning: The core mask is not found. Reason:")
+            print(core_mask)
+        elif isinstance(core_mask, np.ndarray):
+            self._update_mask(target_mass, core_mask, clump_refpoint)
+        else:
+            raise ValueError("How is it possible?")
+    
     # ! unfinished TODO
     def get_previous_structure(self, threshold = -2, time_step = 4):
         maskcube = super().get_previous_structure(threshold, time_step)

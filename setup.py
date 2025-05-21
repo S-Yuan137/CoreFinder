@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="corefinder",
-    version="0.4.2",
+    version="0.4.3",
     author="Shibo Yuan",
     author_email="shibo_yuan@outlook.com",
     description="A package for finding cores in 3D simulation data.",
