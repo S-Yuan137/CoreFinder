@@ -950,7 +950,7 @@ class MaskCube(DataCube):
         total_mass = np.sum(masked_data * pixel_length**3)
         # mass in the unit of Msun, 1 pixel = 0.005 pc
         if total_mass < target_mass * (1 - tolerance):
-            return "The target mass should be less than the total mass."
+            return "The target mass should be less than the parental mass."
 
         if target_mass * (1 - tolerance) < total_mass < target_mass * (1 + tolerance):
             return masked_data > 0  # no negative density
