@@ -4,6 +4,7 @@ import h5py
 import pickle
 from skimage.measure import block_reduce
 from skimage.morphology import remove_small_holes
+from typing import Callable
 from . import core_stats
 
 
@@ -549,7 +550,23 @@ class MaskCube(DataCube):
         subcube_data : np.ndarray
             the subcube data from the original cube
         """
+        if len(shape) != 3 or len(refpoint) != 3:
+            raise ValueError("The shape must be a tuple of 3 elements.")
         subcube_lower = np.array(refpoint)
+        # the start point should between 0 and original_cube.shape -1
+        if periodic_boundary:
+            for i in range(3):
+                if subcube_lower[i] < 0:
+                    subcube_lower[i] += original_cube.shape[i]
+                elif subcube_lower[i] >= original_cube.shape[i]:
+                    subcube_lower[i] -= original_cube.shape[i]
+        else:
+            for i in range(3):
+                if subcube_lower[i] < 0 or subcube_lower[i] >= original_cube.shape[i]:
+                    raise ValueError(
+                        f"The start point {subcube_lower[i]} is out of the raw cube."
+                    )
+        
         subcube_upper = subcube_lower + np.array(shape)
         over_bound_axis = [subcube_upper[i] > original_cube.shape[i] for i in range(3)]
         if not periodic_boundary and np.any(over_bound_axis):
@@ -623,8 +640,9 @@ class MaskCube(DataCube):
 
     def get_previous_structure(
         self,
-        threshold: float = -2,
+        threshold: float = 530.48151,
         time_step: float = 4,
+        **kwargs
     ):
         """
         Get the previous structure of the subcube by the threshold, using passive tracer.
@@ -641,6 +659,8 @@ class MaskCube(DataCube):
         if threshold not in self.thresholds:
             raise ValueError("The threshold is not in the thresholds.")
 
+        enlarge_region = kwargs.get("enlarge_region", 0)
+        
         # load previous data cube
         def _previous_file_path(file_path):
             # file_path = self.file_load_path in format of "/path/to/hdfaa.012"
@@ -665,8 +685,7 @@ class MaskCube(DataCube):
         refpoint = self.refpoints[threshold]
         # get coordinates of masked region ( true values in mask)
         coord = np.argwhere(mask) + np.array(refpoint)
-        # here is a trick to avoid float -> int conversion by zeros_like
-        previous_coord = np.zeros_like(coord)
+        previous_coord = np.zeros_like(coord, dtype=np.float64)
         for i, c in enumerate(coord):
             # deal with periodic boundary
             cx = c[0] if c[0] < self.original_shape[0] else c[0] - self.original_shape[0]
@@ -679,17 +698,24 @@ class MaskCube(DataCube):
                     prev_vz[cx, cy, cz],
                 ]
             )
+        # prev_refpoint = (
+        #     int(np.round(np.min(previous_coord[:, 0]))),
+        #     int(np.round(np.min(previous_coord[:, 1]))),
+        #     int(np.round(np.min(previous_coord[:, 2]))),
+        # )
+        # prev_shape = (
+        #     int(np.round(np.max(previous_coord[:, 0]))) - prev_refpoint[0] + 1,
+        #     int(np.round(np.max(previous_coord[:, 1]))) - prev_refpoint[1] + 1,
+        #     int(np.round(np.max(previous_coord[:, 2]))) - prev_refpoint[2] + 1,
+        # )
+        min_values = np.min(previous_coord, axis=0)
+        max_values = np.max(previous_coord, axis=0)
+        min_rounded = np.round(min_values).astype(int) - enlarge_region
+        max_rounded = np.round(max_values).astype(int) + enlarge_region
 
-        prev_refpoint = (
-            np.min(previous_coord[:, 0]),
-            np.min(previous_coord[:, 1]),
-            np.min(previous_coord[:, 2]),
-        )
-        prev_shape = (
-            np.max(previous_coord[:, 0]) - prev_refpoint[0] + 1,
-            np.max(previous_coord[:, 1]) - prev_refpoint[1] + 1,
-            np.max(previous_coord[:, 2]) - prev_refpoint[2] + 1,
-        )
+        prev_refpoint = tuple(min_rounded)
+        prev_shape = tuple(max_rounded - min_rounded + 1)
+        
         prev_mask = np.zeros(prev_shape, dtype=bool)
         for c in previous_coord:
             prev_mask[tuple(c - np.array(prev_refpoint))] = True
@@ -934,6 +960,10 @@ class MaskCube(DataCube):
                 The number of the search sequence. Default is 50.
             refine: bool, optional
                 Whether to refine the core mass. Default is True.
+            locate_method: str, optional
+                The method to locate the core. Default is "peak density".
+            isolated: bool, optional
+                Whether to find the isolated core. Default is True.
 
         Returns
         -------
@@ -947,6 +977,8 @@ class MaskCube(DataCube):
         num_sequence = kwargs.get("num_sequence", 50)
         pixel_length = kwargs.get("pixel_length", 0.005)  # in pc
         refine = kwargs.get("refine", True)
+        locate_method = kwargs.get("locate_method", "peak density")
+        isolated = kwargs.get("isolated", True)
         total_mass = np.sum(masked_data * pixel_length**3)
         # mass in the unit of Msun, 1 pixel = 0.005 pc
         if total_mass < target_mass * (1 - tolerance):
@@ -955,7 +987,8 @@ class MaskCube(DataCube):
         if target_mass * (1 - tolerance) < total_mass < target_mass * (1 + tolerance):
             return masked_data > 0  # no negative density
 
-        def single_mask(masked_data, contour, seed_point):
+        def _single_mask(masked_data, contour, seed_point):
+            """based on the peak density, find the core."""
             temp_mask1 = masked_data >= contour
             temp_mask2 = cc3d.connected_components(
                 temp_mask1, out_dtype=np.uint64, connectivity=26
@@ -964,14 +997,68 @@ class MaskCube(DataCube):
             # ! Future work: add the option to select the seed point
             seed_label = temp_mask2[seed_point]
             return temp_mask2 == seed_label
+        
+        # ! this method is not good according to the test
+        def _single_mask2(masked_data, contour, seed_point):
+            """based on the most dense structure, find the core."""
+            if seed_point is not None:
+                raise ValueError(
+                    "The seed point is not used in the most dense method."
+                )
+            # choose the most dense isolated structure
+            # as the core, which is not necessarily the highest density point
+            temp_mask1 = masked_data >= contour
+            temp_mask2 = cc3d.connected_components(
+                temp_mask1, out_dtype=np.uint64, connectivity=26
+            )
+            # select the most dense isolated structure
+            densitys = {}
+            for label in np.unique(temp_mask2):
+                mass_in_contour = np.sum(
+                    masked_data[temp_mask2 == label]
+                )
+                volume = np.sum(temp_mask2 == label)
+                densitys[label] = mass_in_contour / volume
+            max_label = max(densitys, key=densitys.get)
+            return temp_mask2 == max_label
+        
+        def _multiple_mask(masked_data, contour, seed_point):
+            """
+            This relaxed the requirement of isolation condition, which means
+            no need for cc3d.connected_components.
+            """
+            temp_mask1 = masked_data >= contour
+            # make sure the mask contains the seed point
+            if seed_point is not None:
+                if not temp_mask1[seed_point]:
+                    raise ValueError(
+                        "The seed point is not in the mask. "
+                        "Please check the seed point."
+                    )
+            return temp_mask1
 
         initial_contour_sequence = np.linspace(
             masked_data.max(), masked_data.min(), num_sequence
         )
         rough_contour = np.zeros(2)
-        seed_point = np.unravel_index(np.argmax(masked_data), masked_data.shape)
+        
+        if isolated:
+            if locate_method == "peak density":
+                seed_point = np.unravel_index(np.argmax(masked_data), masked_data.shape)
+                mask_method: Callable[[np.ndarray, np.float64, tuple|None],np.ndarray] = _single_mask
+            elif locate_method == "most dense":
+                seed_point = None
+                mask_method = _single_mask2
+            else:
+                raise ValueError(
+                    "This locate method is not supported yet. "
+                )
+        else:
+            seed_point = None
+            mask_method = _multiple_mask
+        
         for i_contour, contour in enumerate(initial_contour_sequence):
-            core_mask = single_mask(masked_data, contour, seed_point)
+            core_mask = mask_method(masked_data, contour, seed_point)
             mass_in_contour = np.sum(masked_data[core_mask] * pixel_length**3)
             if mass_in_contour >= target_mass:
                 rough_contour[1] = contour
@@ -984,7 +1071,7 @@ class MaskCube(DataCube):
         elif refine:
             for _ in range(max_iteration):
                 contour = np.mean(rough_contour)
-                core_mask = single_mask(masked_data, contour, seed_point)
+                core_mask = mask_method(masked_data, contour, seed_point)
                 mass_in_contour = np.sum(masked_data[core_mask] * pixel_length**3)
                 if abs(mass_in_contour - target_mass) < target_mass * tolerance:
                     break
@@ -1702,9 +1789,34 @@ class CoreCube(MaskCube):
             raise ValueError("How is it possible?")
     
     # ! unfinished TODO
-    def get_previous_structure(self, threshold = -2, time_step = 4):
-        maskcube = super().get_previous_structure(threshold, time_step)
-        maskcube.find_core(target_mass=threshold)  #! need to think about the low mass clump
+    def get_previous_structure(self, current_clump:MaskCube, threshold = -2, time_step = 4, **kwargs):
+        # still locate at the peak density
+        # invserse corecube + enlarged box == clump in the previous snapshot
+        # find 2 solar mass core within the clump, relaxing the isolation condition
+        
+        maskcube = current_clump.get_previous_structure(time_step = time_step)
+        # find previous core in the maskcube without the isolation condition
+        maskcube.find_core(
+            target_mass=threshold,  # 2 solar mass core
+            isolated = False
+        )
+        
+        for _ in range(3): # add regions for 3 times to try
+            if threshold not in maskcube.thresholds:
+                maskcube = current_clump.get_previous_structure(time_step = time_step, enlarge_region=20)
+                maskcube.find_core(
+                    target_mass=threshold,  # 2 solar mass core
+                    isolated = False
+                )
+            else:
+                break
+            
+        if threshold not in maskcube.thresholds:
+            print(
+                f"Warning: The core with threshold {threshold} is not found in the previous snapshot."
+            )
+            return None
+        
         data, ROI, mask = maskcube.data(threshold=threshold, return_data_type="subcube_roi_mask")
         extra_data = {}
         corecube = CoreCube(data, extra_data,ROI, 
@@ -1730,6 +1842,14 @@ class CoreCube(MaskCube):
         super().update_data_mask(
             new_data, new_ROI, new_threshold, new_mask, new_refpoint
         )
+        
+    # ! unfinished TODO
+    def update_extra_data(self, new_extra_data):
+        """
+        Update the extra data of the CoreCube instance.
+
+        """
+        pass
 
     def dump(self, file_path):
         """
