@@ -4,6 +4,7 @@ import h5py
 import pickle
 from skimage.measure import block_reduce
 from skimage.morphology import remove_small_holes
+from scipy.ndimage import gaussian_filter
 from typing import Callable
 from . import core_stats
 
@@ -646,6 +647,19 @@ class MaskCube(DataCube):
     ):
         """
         Get the previous structure of the subcube by the threshold, using passive tracer.
+        
+        Parameters
+        ----------
+        threshold : float, optional
+            The threshold of the structure to get the previous one, by default 530.48151 Msun/pc^3.
+        time_step : float, optional
+            The time step to get the previous structure, by default 4.
+        **kwargs : dict
+            Additional keyword arguments, including:
+            - enlarge_region: int, optional
+                The enlarge region of the previous structure, by default 0.
+            - gaussian_sigma: float, optional
+                The sigma of the Gaussian filter to smooth the mask, by default 2.
 
 
         Notes
@@ -660,6 +674,7 @@ class MaskCube(DataCube):
             raise ValueError("The threshold is not in the thresholds.")
 
         enlarge_region = kwargs.get("enlarge_region", 0)
+        gaussian_sigma = kwargs.get("gaussian_sigma", 2)
         
         # load previous data cube
         def _previous_file_path(file_path):
@@ -725,6 +740,9 @@ class MaskCube(DataCube):
         prev_data = MaskCube.get_subcube_from_rawcube(
             prev_refpoint, prev_shape, prev_den, periodic_boundary=True
         )
+        # smooth the data mask
+        prev_mask = gaussian_filter(prev_data, sigma=gaussian_sigma) > 0.1
+        
         # ! Future work: add ROI
         output = MaskCube(
             prev_data,
@@ -857,8 +875,10 @@ class MaskCube(DataCube):
         if isinstance(core_mask, str):
             print("Warning: The core mask is not found. Reason:")
             print(core_mask)
+            return {"status": "not found", "message": core_mask}
         elif isinstance(core_mask, np.ndarray):
             self._update_mask(target_mass, core_mask, clump_refpoint)
+            return {"status": "found", "message": f"Core with mass {-target_mass} Msun is found."}
         else:
             raise ValueError("How is it possible?")
 
@@ -1784,39 +1804,78 @@ class CoreCube(MaskCube):
         if isinstance(core_mask, str):
             print("Warning: The core mask is not found. Reason:")
             print(core_mask)
+            return {"status": "not found", "message": core_mask}
         elif isinstance(core_mask, np.ndarray):
             self._update_mask(target_mass, core_mask, clump_refpoint)
+            return {
+                "status": "found",
+                "message": f"Core with mass {-target_mass} Msun is found.",
+            }
         else:
             raise ValueError("How is it possible?")
     
     # ! unfinished TODO
     def get_previous_structure(self, current_clump:MaskCube, threshold = -2, time_step = 4, **kwargs):
+        """get previous fixed mass core structure using the clump information.
+
+        Parameters
+        ----------
+        current_clump : MaskCube
+            The current clump to find the previous clump (same as the core instance currently used).
+        threshold : int, optional
+            The mass of the core, by default -2
+        time_step : int, optional
+            the time step bewteen snapshots, by default 4
+        **kwargs : dict
+            The keyword arguments for the function, including:
+            enlarge_region: int, optional
+                The enlarge region of the mask cube. Default is 0.
+                It is used to enlarge the subcube of the previous clump.
+            gaussian_sigma: float, optional
+                The sigma of the Gaussian filter to smooth the data. Default is 2.
+                It is used to smooth the clump mask before finding the core.
+
+        Returns
+        -------
+        corecube : CoreCube or None
+            The CoreCube instance of the previous core structure if found,
+        """
         # still locate at the peak density
         # invserse corecube + enlarged box == clump in the previous snapshot
         # find 2 solar mass core within the clump, relaxing the isolation condition
         
         maskcube = current_clump.get_previous_structure(time_step = time_step)
         # find previous core in the maskcube without the isolation condition
-        maskcube.find_core(
+        res_dict = maskcube.find_core(
             target_mass=threshold,  # 2 solar mass core
             isolated = False
         )
-        
-        for _ in range(3): # add regions for 3 times to try
-            if threshold not in maskcube.thresholds:
-                maskcube = current_clump.get_previous_structure(time_step = time_step, enlarge_region=20)
+        if res_dict["status"] != "found":
+            print(
+                f"Warning: Quick finding fails. Trying to enlarge the region and find core."
+            )
+            enlarge_region = kwargs.get("enlarge_region", 20)
+            gaussian_sigma = kwargs.get("gaussian_sigma", 2)
+            trial_times = kwargs.get("trial_times", 3)
+            for _ in range(trial_times): # 3 times to try
+                maskcube = current_clump.get_previous_structure(time_step = time_step, 
+                                                                enlarge_region=enlarge_region,
+                                                                gaussian_sigma=gaussian_sigma)
                 maskcube.find_core(
                     target_mass=threshold,  # 2 solar mass core
                     isolated = False
                 )
-            else:
-                break
+                if res_dict["status"] == "found":
+                    print(
+                        f"Core with mass {-threshold} Msun is found in the previous snapshot."
+                    )
+                    break
             
-        if threshold not in maskcube.thresholds:
+        if res_dict["status"] != "found":
             print(
-                f"Warning: The core with threshold {threshold} is not found in the previous snapshot."
+                f"Warning: Core with mass {-threshold} Msun is not found even after enlarging the region."
             )
-            return None
+            return res_dict
         
         data, ROI, mask = maskcube.data(threshold=threshold, return_data_type="subcube_roi_mask")
         extra_data = {}
