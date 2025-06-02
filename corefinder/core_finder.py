@@ -717,6 +717,7 @@ class MaskCube(DataCube):
         prev_shape = tuple(max_rounded - min_rounded + 1)
         
         prev_mask = np.zeros(prev_shape, dtype=bool)
+        previous_coord = np.round(previous_coord).astype(int)
         for c in previous_coord:
             prev_mask[tuple(c - np.array(prev_refpoint))] = True
         # increase the robustness by removing small holes
