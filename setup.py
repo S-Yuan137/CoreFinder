@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="corefinder",
-    version="0.4.6",
+    version="0.4.8",
     author="Shibo Yuan",
     author_email="shibo_yuan@outlook.com",
     description="A package for finding cores in 3D simulation data.",
@@ -16,6 +16,7 @@ setup(
         "scikit-image>=0.24.0",
         "connected-components-3d>=3.18.0",
         "h5py>=3.10.0",
+        "scipy>=1.14.0",
     ],
     python_requires=">=3.9",
     extras_require={

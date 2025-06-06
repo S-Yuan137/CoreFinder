@@ -293,8 +293,12 @@ class MaskCube(DataCube):
         Check if the pixel coordinate is in the subcube defined by refpoint
         and size. The subcube is in the original cube with periodic boundary.
 
-        Note: using numpy array indexing rules, like
-              a[1:2] does not include a[2].
+        Note
+        ----
+        - using numpy array indexing rules, like a[1:2] does not include a[2].
+        - the refpoint is the lower corner of the subcube, and should be between
+        0 and original_cube_shape - 1.
+            
         """
         if len(coord) != 3:
             raise ValueError("The coordinate must be a tuple of 3 elements.")
@@ -737,6 +741,12 @@ class MaskCube(DataCube):
             prev_mask[tuple(c - np.array(prev_refpoint))] = True
         # increase the robustness by removing small holes
         prev_mask = remove_small_holes(prev_mask, area_threshold=64, out=prev_mask)
+        # refpoint should be between 0 and original_shape - 1
+        for i in range(3):
+            if prev_refpoint[i] < 0:
+                prev_refpoint[i] += self.original_shape[i]
+            elif prev_refpoint[i] >= self.original_shape[i]:
+                prev_refpoint[i] -= self.original_shape[i]
         prev_data = MaskCube.get_subcube_from_rawcube(
             prev_refpoint, prev_shape, prev_den, periodic_boundary=True
         )
@@ -1774,13 +1784,20 @@ class CoreCube(MaskCube):
             # will use the most massive core as the parental structure
             parental_threshold = min(self.thresholds[self.thresholds < 0])
         else:
-            if parental_threshold not in self.thresholds:
+            if isinstance(parental_threshold, int|float) and parental_threshold not in self.thresholds:
                 raise ValueError(
                     "Clump threshold is not in the thresholds. If it has to "
                     "be a new threshold, please use find_clump() method first."
                 )
-        clump_mask = self.masks[parental_threshold]
-        clump_refpoint = self.refpoints[parental_threshold]
+        if isinstance(parental_threshold, int|float):
+            clump_mask = self.masks[parental_threshold]
+            clump_refpoint = self.refpoints[parental_threshold]
+        elif parental_threshold == "top10":
+            # specificaly for the previous structure finding
+            # |target_mass| > 2
+            clump_mask = np.ones_like(self.masks[-2])
+            clump_refpoint = self.refpoints[-2]
+            
         # data_refpoint = self.refpoints[self._get_threshold_of_largest_subcube()]
         # relative_coord = MaskCube._compute_relative_coord(
         #     data_refpoint, clump_refpoint, original_shape
@@ -1815,6 +1832,7 @@ class CoreCube(MaskCube):
             raise ValueError("How is it possible?")
     
     # ! unfinished TODO
+    # ! bug: the phyinfo is not updated, so the time is not correct
     def get_previous_structure(self, current_clump:MaskCube, threshold = -2, time_step = 4, **kwargs):
         """get previous fixed mass core structure using the clump information.
 
