@@ -31,7 +31,7 @@ import numpy as np
 
 
 # Load the core
-with open("./core_snap042id001.pickle", "rb") as f:
+with open("./tests/core_snap042id001.pickle", "rb") as f:
     core: cf.CoreCube = pickle.load(f)
 
 
