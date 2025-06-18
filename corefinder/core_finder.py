@@ -697,6 +697,7 @@ class MaskCube(DataCube):
             prev_vx = f["i_velocity"][...].T
             prev_vy = f["j_velocity"][...].T
             prev_vz = f["k_velocity"][...].T
+            prev_t = f["time"][0]
 
         assert prev_den.shape == prev_vx.shape == prev_vy.shape == prev_vz.shape
         assert prev_den.shape == self.original_shape
@@ -732,7 +733,7 @@ class MaskCube(DataCube):
         min_rounded = np.round(min_values).astype(int) - enlarge_region
         max_rounded = np.round(max_values).astype(int) + enlarge_region
 
-        prev_refpoint = tuple(min_rounded)
+        prev_refpoint = np.array(min_rounded)
         prev_shape = tuple(max_rounded - min_rounded + 1)
         
         prev_mask = np.zeros(prev_shape, dtype=bool)
@@ -753,17 +754,21 @@ class MaskCube(DataCube):
         # smooth the data mask
         prev_mask = gaussian_filter(prev_data, sigma=gaussian_sigma) > 0.1
         
+        # update phyinfo for previous structure, only update time, others keep the same
+        prev_phyinfo = self.phyinfo.copy()
+        prev_phyinfo["time"] = prev_t
+        
         # ! Future work: add ROI
         output = MaskCube(
             prev_data,
             np.ones_like(prev_mask, dtype=bool),
             {threshold: prev_mask},
-            {threshold: prev_refpoint},
+            {threshold: tuple(prev_refpoint)},
             internal_id=-int(
                 abs(self.internal_id)
             ),  # negative internal_id for previous structure
             snapshot=self.snapshot - 1,  # previous snapshot
-            phyinfo=self.phyinfo,
+            phyinfo=prev_phyinfo,
             file_load_path=file_load_path,
             original_shape=self.original_shape,
         )
