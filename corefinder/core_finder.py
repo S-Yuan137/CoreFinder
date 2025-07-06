@@ -1662,14 +1662,14 @@ class CoreCube(MaskCube):
                 return False
         return True
 
-    def data(self, threshold: float = None, dataset_name = "density", return_data_type = "masked") -> np.ndarray:
+    def data(self, threshold: float = -2, dataset_name = "density", return_data_type = "masked") -> np.ndarray:
         """
         Get the data (density, vx, Bz, ...) of the mask cube by the threshold.
 
         Parameters
         ----------
         threshold: float, optional
-            The threshold of the mask cube. Default is None.
+            The threshold of the mask cube. Default is -2.
         kwargs: dict
             The keyword arguments for the function, including:
             dataset_name: str, optional

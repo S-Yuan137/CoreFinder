@@ -212,6 +212,148 @@ def is_split(next_overlap_tuple: tuple) -> int | None:
     pass
 
 
+
+def periodic_coord_set(point1: np.ndarray, point2: np.ndarray,
+                       original_size: tuple[int, int, int]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    
+    def get_short_array(arr1, arr2):
+        if len(arr1) <= len(arr2):
+            return arr1
+        else:
+            return arr2
+        
+    # convert to periodic coordinates first
+    point1 = point1 % original_size
+    point2 = point2 % original_size
+    lower = np.minimum(point1, point2)
+    upper = np.maximum(point1, point2)
+    direct_x = np.arange(lower[0], upper[0]+1)
+    direct_y = np.arange(lower[1], upper[1]+1)
+    direct_z = np.arange(lower[2], upper[2]+1)
+    cross = []
+    for i in range(3):
+        cross_axis = []
+        cross_axis.extend(list(np.arange(0, lower[i]+1)))
+        cross_axis.extend(list(np.arange(upper[i], original_size[i])))
+        cross.append(np.array(cross_axis))
+    cross_x, cross_y, cross_z = cross 
+    out_x = get_short_array(direct_x, cross_x)
+    out_y = get_short_array(direct_y, cross_y)
+    out_z = get_short_array(direct_z, cross_z)
+    return out_x, out_y, out_z
+
+
+def compute_pixel_range(lower_x: np.ndarray, lower_y: np.ndarray, lower_z: np.ndarray,
+                        upper_x: np.ndarray, upper_y: np.ndarray, upper_z: np.ndarray,
+                        original_size: tuple[int, int, int]):
+    """
+    Compute the bounded box of multiple boxes in periodic 3D, which is defined by the lower-left and
+    upper-right coordinates.
+    """
+    # build all the possible point pairs from the lower-left and upper-right coordinates
+    point_pairs = []
+    for i in range(len(lower_x)):
+        for j in range(len(upper_x)):
+            point_pairs.append((np.array([lower_x[i], lower_y[i], lower_z[i]]), 
+                                np.array([upper_x[j], upper_y[j], upper_z[j]])))
+    out_x, out_y, out_z = set(), set(), set()
+    for point1, point2 in point_pairs:
+        temp_x, temp_y, temp_z = periodic_coord_set(point1, point2, original_size)
+        out_x.update(temp_x)
+        out_y.update(temp_y)
+        out_z.update(temp_z)
+    out_x = np.array(sorted(out_x))
+    out_y = np.array(sorted(out_y))
+    out_z = np.array(sorted(out_z))
+    out_lower_x = np.min(out_x)
+    out_upper_x = np.max(out_x)
+    out_lower_y = np.min(out_y)
+    out_upper_y = np.max(out_y)
+    out_lower_z = np.min(out_z)
+    out_upper_z = np.max(out_z)
+    if out_lower_x == 0 and out_upper_x == original_size[0] - 1:
+        lost_x = np.setdiff1d(np.arange(original_size[0]), out_x)
+        if len(lost_x) > 0:
+            out_lower_x = np.max(lost_x)+1
+            out_upper_x = np.min(lost_x)-1 + original_size[0]
+    if out_lower_y == 0 and out_upper_y == original_size[1] - 1:
+        lost_y = np.setdiff1d(np.arange(original_size[1]), out_y)
+        if len(lost_y) > 0:
+            out_lower_y = np.max(lost_y)+1
+            out_upper_y = np.min(lost_y)-1 + original_size[1]
+    if out_lower_z == 0 and out_upper_z == original_size[2] - 1:
+        lost_z = np.setdiff1d(np.arange(original_size[2]), out_z)
+        if len(lost_z) > 0:
+            out_lower_z = np.max(lost_z)+1
+            out_upper_z = np.min(lost_z)-1 + original_size[2]
+    return (out_lower_x, out_lower_y, out_lower_z,
+            out_upper_x, out_upper_y, out_upper_z)
+    
+
+
+def get_bound_box_per_snap(
+    corelist: list["MaskCube"] | list["CoreCube"], threshold: float = 17.682717 * 30,
+    original_size: tuple[int, int, int] = (960, 960, 960)
+) -> tuple[tuple[np.ndarray, np.ndarray, np.ndarray], tuple[np.ndarray, np.ndarray, np.ndarray], np.ndarray]:
+    """
+    Get the motion coordinates of Cubes lower-left and upper-right coordinates in 3D.
+    
+    Parameters
+    ----------
+    corelist : list[MaskCube] | list[CoreCube]
+        The list of MaskCube or CoreCube objects.
+    threshold : float, optional
+        The threshold value, by default 17.682717 * 30
+    
+    Returns
+    -------
+    tuple[list[int], list[int], list[int], list[int], list[int], list[int]]
+        The motion coordinates of lower-left and upper-right coordinates in 3D.
+        (lower_x, lower_y, lower_z, upper_x, upper_y, upper_z)
+    """
+    # sort the corelist by snapshot
+    corelist.sort(key=lambda x: x.snapshot)
+    unique_snaps = np.unique([core.snapshot for core in corelist])
+    
+    
+    list_len = len(unique_snaps)
+    lower_x = np.zeros(list_len)
+    lower_y = np.zeros(list_len)
+    lower_z = np.zeros(list_len)
+    upper_x = np.zeros(list_len)
+    upper_y = np.zeros(list_len)
+    upper_z = np.zeros(list_len)
+    for i, snap in enumerate(unique_snaps):
+        cores_in_snap = [core for core in corelist if core.snapshot == snap]
+        if len(cores_in_snap) == 0:
+            raise ValueError(f"No cores found in snapshot {snap}.")
+        elif len(cores_in_snap) == 1:
+            core = cores_in_snap[0]
+            lower_x[i], lower_y[i], lower_z[i] = core.refpoints[threshold]
+            size_x, size_y, size_z = core.masks[threshold].shape
+            upper_x[i] = lower_x[i] + size_x 
+            upper_y[i] = lower_y[i] + size_y
+            upper_z[i] = lower_z[i] + size_z 
+        elif len(cores_in_snap) > 1:
+            temp_lower_x = np.array([core.refpoints[threshold][0] for core in cores_in_snap])
+            temp_lower_y = np.array([core.refpoints[threshold][1] for core in cores_in_snap])
+            temp_lower_z = np.array([core.refpoints[threshold][2] for core in cores_in_snap])
+            temp_upper_x = np.array([core.refpoints[threshold][0] + core.masks[threshold].shape[0] for core in cores_in_snap])
+            temp_upper_y = np.array([core.refpoints[threshold][1] + core.masks[threshold].shape[1] for core in cores_in_snap])
+            temp_upper_z = np.array([core.refpoints[threshold][2] + core.masks[threshold].shape[2] for core in cores_in_snap])
+            # here is a complex logic to find the lower and upper coordinates
+            lower_x[i], lower_y[i], lower_z[i], \
+            upper_x[i], upper_y[i], upper_z[i] = compute_pixel_range(
+                temp_lower_x, temp_lower_y, temp_lower_z,
+                temp_upper_x, temp_upper_y, temp_upper_z,
+                original_size=original_size
+            )
+    size_x = upper_x - lower_x
+    size_y = upper_y - lower_y
+    size_z = upper_z - lower_z
+    return (size_x, size_y, size_z), (lower_x, lower_y, lower_z), unique_snaps
+
+
 class CoreTrack:
     def __init__(self, track: list[tuple[int, int]]) -> None:
         # sort the track by the snap and id
@@ -288,7 +430,7 @@ class CoreTrack:
         return cores
 
     def get_filled_canvas3d_list_float_position(
-        self, coreslist: list["MaskCube"] | list["CoreCube"] = None, threshold: float = 17.682717 * 30
+        self, coreslist: list["MaskCube"] | list["CoreCube"], threshold: float = 17.682717 * 30
     ) -> tuple[list[np.ndarray], list[tuple[int, int, int]]]:
         """
         Fill in the canvas with the data (masked_density in MaskCube list), where the
@@ -297,9 +439,7 @@ class CoreTrack:
         Parameters
         ----------
         coreslist : list[MaskCube], optional
-            The list of MaskCube objects, by default None. However, this should be
-            provided if the MaskCube objects are not loaded from the directory.
-            And for computation efficiency, it is recommended to provide the MaskCube.
+            The list of MaskCube objects.
         threshold : float, optional
             The threshold value, by default 17.682717 * 30
 
@@ -310,108 +450,31 @@ class CoreTrack:
         refpoints: list[tuple[int, int, int]]
             The most lower-left point cooridinate of the canvas in 3D.
         """
-
-        def get_canvas_size(
-            refs: list[tuple[int, int, int]], sizes: list[tuple[int, int, int]],
-            original_size: tuple[int, int, int] = (960, 960, 960)
-        ) -> tuple[int, int, int]:
-            """
-            Get the size of the canvas for plotting
-            """
-            # get the minimum x, y, z
-            min_xs = np.array([ref[0] for ref in refs])
-            min_ys = np.array([ref[1] for ref in refs])
-            min_zs = np.array([ref[2] for ref in refs])
-
-            min_xs[min_xs >= original_size[0]] -= original_size[0]
-            min_ys[min_ys >= original_size[1]] -= original_size[1]
-            min_zs[min_zs >= original_size[2]] -= original_size[2]
-            
-            max_xs = min_xs + np.array([size[0] for size in sizes])
-            max_ys = min_ys + np.array([size[1] for size in sizes])
-            max_zs = min_zs + np.array([size[2] for size in sizes])
-            
-            temp_min_x = min_xs.min()
-            temp_min_y = min_ys.min()
-            temp_min_z = min_zs.min()
-            temp_max_x = max_xs.max()
-            temp_max_y = max_ys.max()
-            temp_max_z = max_zs.max()
-            
-            min_x =  np.array([ref[0] for ref in refs])[min_xs.argmin()]
-            min_y =  np.array([ref[1] for ref in refs])[min_ys.argmin()]
-            min_z =  np.array([ref[2] for ref in refs])[min_zs.argmin()]
-            bounding_x = temp_max_x - temp_min_x
-            bounding_y = temp_max_y - temp_min_y
-            bounding_z = temp_max_z - temp_min_z
-            
-            return (bounding_x, bounding_y, bounding_z), (min_x, min_y, min_z)
-            
-
-        def fill_in_canvas(
-            refs: list[tuple[int, int, int]],
-            sizes: list[tuple[int, int, int]],
-            datas: list[np.ndarray],
-            canvas: np.ndarray,
-            original_size: tuple[int, int, int] = (960, 960, 960),
-        ):
-            """
-            Fill in the canvas with the data
-            """
-            _, min_ref = get_canvas_size(refs, sizes, original_size)
-            min_x, min_y, min_z = min_ref
-            for ref, size, data in zip(refs, sizes, datas):
-                x, y, z = ref
-                
-                start_x = x - min_x
-                start_y = y - min_y
-                start_z = z - min_z
-                
-                canvas[
-                    start_x : start_x + size[0],
-                    start_y : start_y + size[1],
-                    start_z : start_z + size[2],
-                ] = data
-            return canvas, (min_x, min_y, min_z)
-
-        snaps, ids = zip(*self.track)
-        reduce_snaps, count = np.unique(snaps, return_counts=True)
-
-        # the coretrack is sorted according to the snap and id by default
-        # also sort the coreslist according to the snap and id
-        # usually, the coreslist should have the same order as the track
-        # but just in case, keep the following line
-        coreslist = sorted(coreslist, key=lambda x: (x.snapshot, x.internal_id))
-
-        ii = 0
-        filled_canvas_list = []
-        canvas_refpoints = []
-        for idx, snap in enumerate(reduce_snaps):
-            num_cross_clumps = count[idx]
-            if num_cross_clumps == 1:
-                filled_canvas_list.append(
-                    coreslist[ii].data(threshold, return_data_type="masked")
-                )
-                canvas_refpoints.append(coreslist[ii].refpoints[threshold])
-                ii += 1
-            else:
-                temp_refs = []
-                temp_sizes = []
-                temp_datas = []
-                for _ in range(num_cross_clumps):
-                    temp_refs.append(coreslist[ii].refpoints[threshold])
-                    temp_sizes.append(coreslist[ii].masks[threshold].shape)
-                    temp_datas.append(
-                        coreslist[ii].data(threshold, return_data_type="masked")
-                    )
-                    ii += 1
-                canvas = np.zeros(get_canvas_size(temp_refs, temp_sizes)[0])
-                canvas, new_ref = fill_in_canvas(
-                    temp_refs, temp_sizes, temp_datas, canvas
-                )
-                filled_canvas_list.append(canvas)
-                canvas_refpoints.append(new_ref)
-        return filled_canvas_list, canvas_refpoints
+        original_size = coreslist[0].original_shape
+        canvas_sizes, canvas_refs, unique_snaps = get_bound_box_per_snap(
+            coreslist, threshold=threshold, original_size=original_size
+        )
+        canvas3d_list = []
+        canvas3d_refs = []
+        for i, snap in enumerate(unique_snaps):
+            canvas_ref = (canvas_refs[0][i], canvas_refs[1][i], canvas_refs[2][i])
+            canvas_size = (canvas_sizes[0][i], canvas_sizes[1][i], canvas_sizes[2][i])
+            canvas = np.zeros(canvas_size, dtype=np.float32)
+            for core in coreslist:
+                if core.snapshot == snap:
+                    # get the mask and refpoint for this core
+                    data = core.data(threshold=threshold,return_data_type="masked")
+                    refpoint = core.refpoints[threshold]
+                    # fill the canvas with the masked density
+                    canvas[
+                        refpoint[0] - canvas_ref[0]:refpoint[0] - canvas_ref[0] + data.shape[0],
+                        refpoint[1] - canvas_ref[1]:refpoint[1] - canvas_ref[1] + data.shape[1],
+                        refpoint[2] - canvas_ref[2]:refpoint[2] - canvas_ref[2] + data.shape[2]
+                    ] += data
+            canvas3d_list.append(canvas)
+            canvas3d_refs.append(canvas_ref)
+        return canvas3d_list, canvas3d_refs
+        
 
     def get_filled_canvas3d_list(
         self, coreslist: list["MaskCube"] = None, threshold: float = 17.682717 * 30
@@ -439,29 +502,6 @@ class CoreTrack:
         canvs3d_list, refpoints = self.get_filled_canvas3d_list_float_position(
             coreslist, threshold
         )
-
-        def get_bounding_canvas_size_wrong(
-            canvases: list[np.ndarray], refpoints: list[tuple[int, int, int]]
-        ) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
-            """
-            Get the size of the bounding canvas for plotting
-            """
-            # get the maximum x and y
-            max_x = max(
-                [ref[0] + canvas.shape[0] for ref, canvas in zip(refpoints, canvases)]
-            )
-            max_y = max(
-                [ref[1] + canvas.shape[1] for ref, canvas in zip(refpoints, canvases)]
-            )
-            max_z = max(
-                [ref[2] + canvas.shape[2] for ref, canvas in zip(refpoints, canvases)]
-            )
-            # get the minimum x, y, z
-            min_x = min([ref[0] for ref in refpoints])
-            min_y = min([ref[1] for ref in refpoints])
-            min_z = min([ref[2] for ref in refpoints])
-
-            return (max_x - min_x, max_y - min_y, max_z - min_z), (min_x, min_y, min_z)
         
         def get_bounding_canvas_size(
             canvases: list[np.ndarray], refpoints: list[tuple[int, int, int]],
