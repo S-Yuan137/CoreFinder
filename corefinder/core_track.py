@@ -227,14 +227,14 @@ def periodic_coord_set(point1: np.ndarray, point2: np.ndarray,
     point2 = point2 % original_size
     lower = np.minimum(point1, point2)
     upper = np.maximum(point1, point2)
-    direct_x = np.arange(lower[0], upper[0]+1)
-    direct_y = np.arange(lower[1], upper[1]+1)
-    direct_z = np.arange(lower[2], upper[2]+1)
+    direct_x = np.arange(lower[0], upper[0]+1, dtype=np.int32)
+    direct_y = np.arange(lower[1], upper[1]+1, dtype=np.int32)
+    direct_z = np.arange(lower[2], upper[2]+1, dtype=np.int32)
     cross = []
     for i in range(3):
         cross_axis = []
-        cross_axis.extend(list(np.arange(0, lower[i]+1)))
-        cross_axis.extend(list(np.arange(upper[i], original_size[i])))
+        cross_axis.extend(list(np.arange(0, lower[i]+1, dtype=np.int32)))
+        cross_axis.extend(list(np.arange(upper[i], original_size[i], dtype=np.int32)))
         cross.append(np.array(cross_axis))
     cross_x, cross_y, cross_z = cross 
     out_x = get_short_array(direct_x, cross_x)
@@ -245,7 +245,7 @@ def periodic_coord_set(point1: np.ndarray, point2: np.ndarray,
 
 def compute_pixel_range(lower_x: np.ndarray, lower_y: np.ndarray, lower_z: np.ndarray,
                         upper_x: np.ndarray, upper_y: np.ndarray, upper_z: np.ndarray,
-                        original_size: tuple[int, int, int]):
+                        original_size: tuple[int, int, int]) -> tuple[int, int, int, int, int, int]:
     """
     Compute the bounded box of multiple boxes in periodic 3D, which is defined by the lower-left and
     upper-right coordinates.
@@ -286,6 +286,12 @@ def compute_pixel_range(lower_x: np.ndarray, lower_y: np.ndarray, lower_z: np.nd
         if len(lost_z) > 0:
             out_lower_z = np.max(lost_z)+1
             out_upper_z = np.min(lost_z)-1 + original_size[2]
+    out_lower_x = int(out_lower_x)
+    out_lower_y = int(out_lower_y)
+    out_lower_z = int(out_lower_z)
+    out_upper_x = int(out_upper_x)
+    out_upper_y = int(out_upper_y)
+    out_upper_z = int(out_upper_z)
     return (out_lower_x, out_lower_y, out_lower_z,
             out_upper_x, out_upper_y, out_upper_z)
     
@@ -348,9 +354,12 @@ def get_bound_box_per_snap(
                 temp_upper_x, temp_upper_y, temp_upper_z,
                 original_size=original_size
             )
-    size_x = upper_x - lower_x
-    size_y = upper_y - lower_y
-    size_z = upper_z - lower_z
+    size_x = (upper_x - lower_x).astype(np.int32)
+    size_y = (upper_y - lower_y).astype(np.int32)
+    size_z = (upper_z - lower_z).astype(np.int32)
+    # lower_x = lower_x.astype(np.int32)
+    # lower_y = lower_y.astype(np.int32)
+    # lower_z = lower_z.astype(np.int32)
     return (size_x, size_y, size_z), (lower_x, lower_y, lower_z), unique_snaps
 
 
@@ -465,12 +474,14 @@ class CoreTrack:
                     # get the mask and refpoint for this core
                     data = core.data(threshold=threshold,return_data_type="masked")
                     refpoint = core.refpoints[threshold]
-                    # fill the canvas with the masked density
+                    start_x = refpoint[0] - canvas_ref[0] if refpoint[0] - canvas_ref[0] >= 0 else refpoint[0] - canvas_ref[0]+ original_size[0]
+                    start_y = refpoint[1] - canvas_ref[1] if refpoint[1] - canvas_ref[1] >= 0 else refpoint[1] - canvas_ref[1]+ original_size[1]
+                    start_z = refpoint[2] - canvas_ref[2] if refpoint[2] - canvas_ref[2] >= 0 else refpoint[2] - canvas_ref[2]+ original_size[2]
                     canvas[
-                        refpoint[0] - canvas_ref[0]:refpoint[0] - canvas_ref[0] + data.shape[0],
-                        refpoint[1] - canvas_ref[1]:refpoint[1] - canvas_ref[1] + data.shape[1],
-                        refpoint[2] - canvas_ref[2]:refpoint[2] - canvas_ref[2] + data.shape[2]
-                    ] += data
+                        start_x:start_x + data.shape[0],
+                        start_y:start_y + data.shape[1],
+                        start_z:start_z + data.shape[2]
+                    ] = data
             canvas3d_list.append(canvas)
             canvas3d_refs.append(canvas_ref)
         return canvas3d_list, canvas3d_refs
@@ -478,7 +489,7 @@ class CoreTrack:
 
     def get_filled_canvas3d_list(
         self, coreslist: list["MaskCube"] = None, threshold: float = 17.682717 * 30
-    ) -> tuple[list[np.ndarray], list[tuple[int, int, int]]]:
+    ) -> tuple[list[np.ndarray], tuple[int, int, int]]:
         """
         Fill in the canvas with the data (masked_density in MaskCube list), where the
         positions of canvas in snaps have correct relative distances.
@@ -502,7 +513,7 @@ class CoreTrack:
         canvs3d_list, refpoints = self.get_filled_canvas3d_list_float_position(
             coreslist, threshold
         )
-        
+        original_size = coreslist[0].original_shape
         def get_bounding_canvas_size(
             canvases: list[np.ndarray], refpoints: list[tuple[int, int, int]],
             original_size: tuple[int, int, int] = (960, 960, 960)
@@ -510,72 +521,47 @@ class CoreTrack:
             """
             Get the size of the bounding canvas for plotting
             """
-            # get the minimum x, y, z
-            min_xs = np.array([ref[0] for ref in refpoints])
-            min_ys = np.array([ref[1] for ref in refpoints])
-            min_zs = np.array([ref[2] for ref in refpoints])
-
-            # check canvas size not exceed the original size
-            temp_x_sizes = np.array([canvas.shape[0] for canvas in canvases])
-            temp_y_sizes = np.array([canvas.shape[1] for canvas in canvases])
-            temp_z_sizes = np.array([canvas.shape[2] for canvas in canvases])
+            lower_x = []
+            lower_y = []
+            lower_z = []
+            upper_x = []
+            upper_y = []
+            upper_z = []
+            for i, canvas in enumerate(canvases):
+                lower_x.append(refpoints[i][0])
+                lower_y.append(refpoints[i][1])
+                lower_z.append(refpoints[i][2])
+                upper_x.append(refpoints[i][0] + canvas.shape[0])
+                upper_y.append(refpoints[i][1] + canvas.shape[1])
+                upper_z.append(refpoints[i][2] + canvas.shape[2])
+            # compute the bounding box of all the canvases
+            out_lower_x, out_lower_y, out_lower_z, \
+            out_upper_x, out_upper_y, out_upper_z = compute_pixel_range(
+                np.array(lower_x), np.array(lower_y), np.array(lower_z),
+                np.array(upper_x), np.array(upper_y), np.array(upper_z),
+                original_size=original_size
+            )
             
-            if (temp_x_sizes >= original_size[0]).any():
-                print("Warning: canvas size exceeds the original size in x")
-            if (temp_y_sizes >= original_size[1]).any():
-                print("Warning: canvas size exceeds the original size in y")
-            if (temp_z_sizes >= original_size[2]).any():
-                print("Warning: canvas size exceeds the original size in z")
+            bounding_x = out_upper_x - out_lower_x
+            bounding_y = out_upper_y - out_lower_y
+            bounding_z = out_upper_z - out_lower_z
             
-            # make sure min_x, min_y, min_z are within the original size
-            min_xs[min_xs >= original_size[0]] -= original_size[0]
-            min_ys[min_ys >= original_size[1]] -= original_size[1]
-            min_zs[min_zs >= original_size[2]] -= original_size[2]
-            max_xs = min_xs + np.array([canvas.shape[0] for canvas in canvases])
-            max_ys = min_ys + np.array([canvas.shape[1] for canvas in canvases])
-            max_zs = min_zs + np.array([canvas.shape[2] for canvas in canvases])
-            
-            temp_min_x = min_xs.min()
-            temp_min_y = min_ys.min()
-            temp_min_z = min_zs.min()
-            temp_max_x = max_xs.max()
-            temp_max_y = max_ys.max()
-            temp_max_z = max_zs.max()
-            
-            
-            # refpoints of the most lower-left point
-            # find the element >=960  and subtract 960 for them
-            min_x =  np.array([ref[0] for ref in refpoints])[min_xs.argmin()]
-            min_y =  np.array([ref[1] for ref in refpoints])[min_ys.argmin()]
-            min_z =  np.array([ref[2] for ref in refpoints])[min_zs.argmin()]
-            bounding_x = temp_max_x - temp_min_x
-            bounding_y = temp_max_y - temp_min_y
-            bounding_z = temp_max_z - temp_min_z
-            print(f"min_x: {min_x}, min_y: {min_y}, min_z: {min_z}")
-            print(f"bounding_x: {bounding_x}, bounding_y: {bounding_y}, bounding_z: {bounding_z}")
-            return (bounding_x, bounding_y, bounding_z), (min_x, min_y, min_z)
-
+            return (bounding_x, bounding_y, bounding_z), (out_lower_x, out_lower_y, out_lower_z)
+        
         bc_size, min_ref_bc = get_bounding_canvas_size(canvs3d_list, refpoints)
         fixed_position_canvs3d_list = []
         for i, canvas in enumerate(canvs3d_list):
             temp_canvas = np.zeros(bc_size)
-            temp_canvas[
-                refpoints[i][0]
-                - min_ref_bc[0] : refpoints[i][0]
-                - min_ref_bc[0]
-                + canvas.shape[0],
-                refpoints[i][1]
-                - min_ref_bc[1] : refpoints[i][1]
-                - min_ref_bc[1]
-                + canvas.shape[1],
-                refpoints[i][2]
-                - min_ref_bc[2] : refpoints[i][2]
-                - min_ref_bc[2]
-                + canvas.shape[2],
+            s_x = refpoints[i][0] - min_ref_bc[0] if refpoints[i][0] - min_ref_bc[0] >= 0 else refpoints[i][0] - min_ref_bc[0] + original_size[0]
+            s_y = refpoints[i][1] - min_ref_bc[1] if refpoints[i][1] - min_ref_bc[1] >= 0 else refpoints[i][1] - min_ref_bc[1] + original_size[1]
+            s_z = refpoints[i][2] - min_ref_bc[2] if refpoints[i][2] - min_ref_bc[2] >= 0 else refpoints[i][2] - min_ref_bc[2] + original_size[2]
+            temp_canvas[s_x:s_x + canvas.shape[0],
+                        s_y:s_y + canvas.shape[1],
+                        s_z:s_z + canvas.shape[2]
             ] = canvas
             fixed_position_canvs3d_list.append(temp_canvas)
 
-        return fixed_position_canvs3d_list
+        return fixed_position_canvs3d_list, min_ref_bc
 
     def get_filled_canvas2d_list(
         self,
