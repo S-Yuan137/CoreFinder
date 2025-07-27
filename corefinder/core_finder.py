@@ -42,20 +42,22 @@ class DataCube:
         else:
             if not isinstance(phyinfo, dict):
                 raise ValueError("Physical information must be a dictionary")
-            pixel_size = phyinfo.get("pixel_size", None)
-            boundary = phyinfo.get("boundary", None)
-            time = phyinfo.get("time", None)
-            length_unit = phyinfo.get("length_unit", None)
-            time_unit = phyinfo.get("time_unit", None)
-            value_unit = phyinfo.get("value_unit", None)
-            return {
-                "pixel_size": pixel_size,
-                "boundary": boundary,
-                "time": time,
-                "length_unit": length_unit,
-                "time_unit": time_unit,
-                "value_unit": value_unit,
-            }
+            # check if the keys are in the phyinfo dictionary
+            required_keys = [
+                "pixel_size",
+                "boundary",
+                "time",
+                "length_unit",
+                "time_unit",
+                "value_unit",
+            ]
+            for key in required_keys:
+                if key not in phyinfo:
+                    # create the key with None value
+                    phyinfo[key] = None
+            # other keys are kept as is
+            return phyinfo
+
 
     def __repr__(self):
         return (
@@ -532,7 +534,7 @@ class MaskCube(DataCube):
 
     @staticmethod
     def get_subcube_from_rawcube(
-        refpoint: tuple[int | np.int64],
+        refpoint: tuple[int | np.int64] | np.ndarray,
         shape: tuple[int | np.int64],
         original_cube: np.ndarray,
         periodic_boundary: bool = True,
@@ -736,12 +738,13 @@ class MaskCube(DataCube):
         prev_refpoint = np.array(min_rounded)
         prev_shape = tuple(max_rounded - min_rounded + 1)
         
-        prev_mask = np.zeros(prev_shape, dtype=bool)
+        prev_mask = np.zeros(prev_shape, dtype=np.float32)
         previous_coord = np.round(previous_coord).astype(int)
         for c in previous_coord:
-            prev_mask[tuple(c - np.array(prev_refpoint))] = True
+            prev_mask[tuple(c - np.array(prev_refpoint))] = 1.0
         # increase the robustness by removing small holes
-        prev_mask = remove_small_holes(prev_mask, area_threshold=64, out=prev_mask)
+        # it seems not necessary if the Gaussian filter is used
+        # prev_mask = remove_small_holes(prev_mask, area_threshold=64, out=prev_mask)
         # refpoint should be between 0 and original_shape - 1
         for i in range(3):
             if prev_refpoint[i] < 0:
@@ -751,9 +754,9 @@ class MaskCube(DataCube):
         prev_data = MaskCube.get_subcube_from_rawcube(
             prev_refpoint, prev_shape, prev_den, periodic_boundary=True
         )
-        # smooth the data mask
-        prev_mask = gaussian_filter(prev_data, sigma=gaussian_sigma) > 0.1
-        
+        # smooth the data mask, consider to adjust the threshold
+        prev_mask = gaussian_filter(prev_mask, sigma=gaussian_sigma) > 0.1 
+        prev_mask = prev_mask.astype(bool)
         # update phyinfo for previous structure, only update time, others keep the same
         prev_phyinfo = self.phyinfo.copy()
         prev_phyinfo["time"] = prev_t
@@ -1837,7 +1840,6 @@ class CoreCube(MaskCube):
             raise ValueError("How is it possible?")
     
     # ! unfinished TODO
-    # ! bug: the phyinfo is not updated, so the time is not correct
     def get_previous_structure(self, current_clump:MaskCube, threshold = -2, time_step = 4, **kwargs):
         """get previous fixed mass core structure using the clump information.
 
@@ -1912,6 +1914,155 @@ class CoreCube(MaskCube):
                             original_shape=maskcube.original_shape)
         return corecube
 
+    def get_previous_core(self, threshold=-2, time_step=4, **kwargs):
+        """
+        Get the previous core, using passive tracer method.
+        
+        Parameters
+        ----------
+        threshold : float, optional
+            The threshold of the structure to get the previous one, by default 530.48151 Msun/pc^3.
+        time_step : float, optional
+            The time step to get the previous structure, by default 4.
+        **kwargs : dict
+            Additional keyword arguments, including:
+            - enlarge_region: int, optional
+                The enlarge region of the previous structure, by default 0.
+            - gaussian_sigma: float, optional
+                The sigma of the Gaussian filter to smooth the mask, by default 2.
+
+
+        Notes
+        -----
+        - The passive tracer is used, i.e., the tracer is not affected by the each other.
+        And tracers do not change the velocity field.
+        - The time_step is in the unit of pixel_size. It is 4 in default resolution of
+        original data (960^3). More details see the `predict_next_position` method in
+        `SimCube` class.
+        """
+        if threshold not in self.thresholds:
+            raise ValueError("The threshold is not in the thresholds.")
+
+        enlarge_region = kwargs.get("enlarge_region", 0)
+        gaussian_sigma = kwargs.get("gaussian_sigma", 2)
+        
+        # load previous data cube
+        def _previous_file_path(file_path):
+            # file_path = self.file_load_path in format of "/path/to/hdfaa.012"
+            # return "/path/to/hdfaa.011", note last is hdfaa.{snap:03d}
+            file_path = file_path.split(".")
+            file_path[-1] = f"{int(file_path[-1])-1:03d}"
+            return ".".join(file_path)
+
+        file_load_path = _previous_file_path(self.file_load_path)
+
+        # ! here the dataset name is hard coded, need to be changed
+
+        with h5py.File(file_load_path, "r") as f:
+            prev_den = f["gas_density"][...].T
+            prev_vx = f["i_velocity"][...].T
+            prev_vy = f["j_velocity"][...].T
+            prev_vz = f["k_velocity"][...].T
+            prev_Bx = f["i_mag_field"][...].T
+            prev_By = f["j_mag_field"][...].T
+            prev_Bz = f["k_mag_field"][...].T
+            prev_Gp = f["grav_pot"][...].T
+            prev_t = f["time"][0]
+
+        assert prev_den.shape == prev_vx.shape == prev_vy.shape == prev_vz.shape
+        assert prev_den.shape == self.original_shape
+        mask = self.masks[threshold]
+        refpoint = self.refpoints[threshold]
+        # get coordinates of masked region ( true values in mask)
+        coord = np.argwhere(mask) + np.array(refpoint)
+        previous_coord = np.zeros_like(coord, dtype=np.float64)
+        for i, c in enumerate(coord):
+            # deal with periodic boundary
+            cx = c[0] if c[0] < self.original_shape[0] else c[0] - self.original_shape[0]
+            cy = c[1] if c[1] < self.original_shape[1] else c[1] - self.original_shape[1]
+            cz = c[2] if c[2] < self.original_shape[2] else c[2] - self.original_shape[2]
+            previous_coord[i] = coord[i] - time_step * np.array(
+                [
+                    prev_vx[cx, cy, cz],
+                    prev_vy[cx, cy, cz],
+                    prev_vz[cx, cy, cz],
+                ]
+            )
+        min_values = np.min(previous_coord, axis=0)
+        max_values = np.max(previous_coord, axis=0)
+        min_rounded = np.round(min_values).astype(int) - enlarge_region
+        max_rounded = np.round(max_values).astype(int) + enlarge_region
+
+        prev_refpoint = np.array(min_rounded, dtype=int)
+        prev_shape = tuple(max_rounded - min_rounded + 1)
+        
+        prev_mask = np.zeros(prev_shape, dtype=np.float32)
+        previous_coord = np.round(previous_coord).astype(int)
+        for c in previous_coord:
+            prev_mask[tuple(c - np.array(prev_refpoint))] = 1.0
+        # increase the robustness by removing small holes
+        # prev_mask = remove_small_holes(prev_mask, area_threshold=64, out=prev_mask)
+        # refpoint should be between 0 and original_shape - 1
+        for i in range(3):
+            if prev_refpoint[i] < 0:
+                prev_refpoint[i] += self.original_shape[i]
+            elif prev_refpoint[i] >= self.original_shape[i]:
+                prev_refpoint[i] -= self.original_shape[i]
+        prev_data = MaskCube.get_subcube_from_rawcube(
+            prev_refpoint, prev_shape, prev_den, periodic_boundary=True
+        )
+        # smooth the data mask
+        prev_mask = gaussian_filter(prev_mask, sigma=gaussian_sigma) > 0.1
+        prev_mask = prev_mask.astype(bool)
+        
+        # update phyinfo for previous structure, only update time, others keep the same
+        prev_phyinfo = self.phyinfo.copy()
+        prev_phyinfo["time"] = prev_t
+        # if prev_phyinfo has "head_node" key, keep it the same; if not, set it to the self's node
+        if "head_node" not in self.phyinfo:
+            prev_phyinfo["head_node"] = (self.snapshot, self.internal_id)
+        
+        # prepare the extra data
+        prev_extra_data = {
+            "Vx": MaskCube.get_subcube_from_rawcube(
+                prev_refpoint, prev_shape, prev_vx, periodic_boundary=True
+            ),
+            "Vy": MaskCube.get_subcube_from_rawcube(
+                prev_refpoint, prev_shape, prev_vy, periodic_boundary=True
+            ),
+            "Vz": MaskCube.get_subcube_from_rawcube(
+                prev_refpoint, prev_shape, prev_vz, periodic_boundary=True
+            ),
+            "Bx": MaskCube.get_subcube_from_rawcube(
+                prev_refpoint, prev_shape, prev_Bx, periodic_boundary=True
+            ),
+            "By": MaskCube.get_subcube_from_rawcube(
+                prev_refpoint, prev_shape, prev_By, periodic_boundary=True
+            ),
+            "Bz": MaskCube.get_subcube_from_rawcube(
+                prev_refpoint, prev_shape, prev_Bz, periodic_boundary=True
+            ),
+            "Gp": MaskCube.get_subcube_from_rawcube(
+                prev_refpoint, prev_shape, prev_Gp, periodic_boundary=True
+            ),
+        }
+        
+        output = CoreCube(
+            prev_data,
+            prev_extra_data,
+            np.ones_like(prev_mask, dtype=bool),
+            {threshold: prev_mask},
+            {threshold: tuple(prev_refpoint)},
+            internal_id=-int(
+                abs(self.internal_id)
+            ),  # negative internal_id for previous structure
+            snapshot=self.snapshot - 1,  # previous snapshot
+            phyinfo=prev_phyinfo,
+            file_load_path=file_load_path,
+            original_shape=self.original_shape,
+        )
+        return output
+
     def update_data_mask(
         self, new_data, new_extra_data, new_ROI, new_threshold, new_mask, new_refpoint
     ):
@@ -1926,13 +2077,24 @@ class CoreCube(MaskCube):
             new_data, new_ROI, new_threshold, new_mask, new_refpoint
         )
         
-    # ! unfinished TODO
-    def update_extra_data(self, new_extra_data):
+    # ! unfinished TODO, slow, consider speed up
+    def get_extra_data_from_h5(self, threshold):
         """
-        Update the extra data of the CoreCube instance.
-
+        Get the extra data from the h5 file by the threshold.
         """
-        pass
+        if threshold not in self.thresholds:
+            raise ValueError(
+                f"The threshold {threshold} is not in the thresholds: {self.thresholds}"
+            )
+        Vx = self.get_specific_subcube(threshold, dataset_name="i_velocity")
+        Vy = self.get_specific_subcube(threshold, dataset_name="j_velocity")
+        Vz = self.get_specific_subcube(threshold, dataset_name="k_velocity")
+        Bx = self.get_specific_subcube(threshold, dataset_name="i_mag_field")
+        By = self.get_specific_subcube(threshold, dataset_name="j_mag_field")
+        Bz = self.get_specific_subcube(threshold, dataset_name="k_mag_field")
+        Gp = self.get_specific_subcube(threshold, dataset_name="grav_pot")
+        extra_data = {"Vx": Vx, "Vy": Vy, "Vz": Vz, "Bx": Bx, "By": By, "Bz": Bz, "Gp": Gp}
+        self._extra_data.update(extra_data)
 
     def dump(self, file_path):
         """

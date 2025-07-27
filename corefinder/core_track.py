@@ -323,12 +323,12 @@ def get_bound_box_per_snap(
     
     
     list_len = len(unique_snaps)
-    lower_x = np.zeros(list_len)
-    lower_y = np.zeros(list_len)
-    lower_z = np.zeros(list_len)
-    upper_x = np.zeros(list_len)
-    upper_y = np.zeros(list_len)
-    upper_z = np.zeros(list_len)
+    lower_x = np.zeros(list_len, dtype=np.int32)
+    lower_y = np.zeros(list_len, dtype=np.int32)
+    lower_z = np.zeros(list_len, dtype=np.int32)
+    upper_x = np.zeros(list_len, dtype=np.int32)
+    upper_y = np.zeros(list_len, dtype=np.int32)
+    upper_z = np.zeros(list_len, dtype=np.int32)
     for i, snap in enumerate(unique_snaps):
         cores_in_snap = [core for core in corelist if core.snapshot == snap]
         if len(cores_in_snap) == 0:
@@ -357,9 +357,6 @@ def get_bound_box_per_snap(
     size_x = (upper_x - lower_x).astype(np.int32)
     size_y = (upper_y - lower_y).astype(np.int32)
     size_z = (upper_z - lower_z).astype(np.int32)
-    # lower_x = lower_x.astype(np.int32)
-    # lower_y = lower_y.astype(np.int32)
-    # lower_z = lower_z.astype(np.int32)
     return (size_x, size_y, size_z), (lower_x, lower_y, lower_z), unique_snaps
 
 
