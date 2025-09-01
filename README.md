@@ -71,9 +71,15 @@ MIT License
 
 ## Citation
 
-If you use **corefinder** in your research, please cite:
+If you use **corefinder** in your research, please contact the author for citation information (because it is still in a developing status, though usable)
 
-> Yuan, S. (2025). CoreFinder: A Python package for core identification in 3D MHD simulations (in perp.). [GitHub repository](https://github.com/S-Yuan137/CoreFinder).
+~~please cite:~~
+
+> ~~Yuan, S. (2025). CoreFinder: A Python package for core identification in 3D MHD simulations (in perp.). [GitHub repository](https://github.com/S-Yuan137/CoreFinder).~~
 
 ---
 For questions or contributions, please open an issue or pull request on GitHub.
+
+## Acknowledge
+
+This package was developed within the vibrant research environment of CUHK-SFG. Its development draws heavily on the foundational codebase kindly shared by Dr. Cao, an inspiring collaborator whose expertise in astrophysics and AI has profoundly influenced the project's trajectory. Special thanks are also due to Mr. Chen and Mr. Sun for their substantial support in the technical development of this package, especially in debugging, data processing, and system optimization.
