@@ -1,3 +1,41 @@
 [build-system]
 requires = ["setuptools>=64", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "corefinder"
+version = "0.5.1"
+description = "A package for finding cores in 3D simulation data."
+authors = [
+    {name = "Shibo Yuan", email = "shibo_yuan@outlook.com"}
+]
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "numpy>=2.0.0",
+    "scikit-image>=0.24.0",
+    "connected-components-3d>=3.18.0",
+    "h5py>=3.10.0",
+    "scipy>=1.14.0",
+]
+
+[project.optional-dependencies]
+optional = [
+    "matplotlib>=3.9.0",
+    "scikit-learn>=1.5.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["corefinder*"]
+exclude = ["tests*", "temp*", "data*"]
