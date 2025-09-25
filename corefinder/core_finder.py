@@ -929,8 +929,10 @@ class MaskCube(DataCube):
         valid_args = ["return_data_type"]
         for arg in kwargs:
             if arg not in valid_args:
-                print(f"{arg} is not a valid keyword")
-                kwargs.pop(arg)
+                print("Warning:")
+                print(f"{arg} is not a valid keyword in MaskCube")
+                print("Be careful, it may be ignored.")
+                # kwargs.pop(arg)
 
         return_data_type = kwargs.get("return_data_type", "masked")
         if (threshold is not None) and (threshold not in self.thresholds):
