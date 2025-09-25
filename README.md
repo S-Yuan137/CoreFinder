@@ -15,6 +15,7 @@
 ```sh
 pip install corefinder
 ```
+**Note**: I have not made the PyPI repo ready yet, please use `pip install xxx.whl`, where the `xxx.whl` can be obtained by `python -m build wheel`.
 
 Or, for development:
 
